@@ -1,10 +1,10 @@
 const { query } = require('../config/database');
 
 const ContactModel = {
-  async findOrCreate(userId, { name, phone, email, notes }) {
+  async findOrCreate(userId, { name, phone }) {
     const cleanPhone = phone.replace(/[^0-9]/g, '');
     const findText = `
-      SELECT id, user_id, name, phone, email, notes, created_at, updated_at
+      SELECT id, user_id, name, phone, created_at, updated_at
       FROM contacts
       WHERE user_id = $1 AND phone = $2
       LIMIT 1
@@ -16,7 +16,7 @@ const ContactModel = {
           UPDATE contacts
           SET name = $1, updated_at = CURRENT_TIMESTAMP
           WHERE id = $2
-          RETURNING id, user_id, name, phone, email, notes, created_at, updated_at
+          RETURNING id, user_id, name, phone, created_at, updated_at
         `;
         const updateResult = await query(updateText, [name, findResult.rows[0].id]);
         return updateResult.rows[0];
@@ -25,18 +25,18 @@ const ContactModel = {
     }
 
     const insertText = `
-      INSERT INTO contacts (user_id, name, phone, email, notes)
-      VALUES ($1, $2, $3, $4, $5)
-      RETURNING id, user_id, name, phone, email, notes, created_at, updated_at
+      INSERT INTO contacts (user_id, name, phone)
+      VALUES ($1, $2, $3)
+      RETURNING id, user_id, name, phone, created_at, updated_at
     `;
-    const insertValues = [userId, name || cleanPhone, cleanPhone, email || null, notes || null];
+    const insertValues = [userId, name || cleanPhone, cleanPhone];
     const insertResult = await query(insertText, insertValues);
     return insertResult.rows[0];
   },
 
   async findById(id, userId) {
     const text = `
-      SELECT id, user_id, name, phone, email, notes, created_at, updated_at
+      SELECT id, user_id, name, phone, created_at, updated_at
       FROM contacts
       WHERE id = $1 AND user_id = $2
       LIMIT 1
@@ -48,7 +48,7 @@ const ContactModel = {
   async findByPhone(userId, phone) {
     const cleanPhone = phone.replace(/[^0-9]/g, '');
     const text = `
-      SELECT id, user_id, name, phone, email, notes, created_at, updated_at
+      SELECT id, user_id, name, phone, created_at, updated_at
       FROM contacts
       WHERE user_id = $1 AND phone = $2
       LIMIT 1
@@ -59,7 +59,7 @@ const ContactModel = {
 
   async getAllByUser(userId) {
     const text = `
-      SELECT id, user_id, name, phone, email, notes, created_at, updated_at
+      SELECT id, user_id, name, phone, created_at, updated_at
       FROM contacts
       WHERE user_id = $1
       ORDER BY updated_at DESC

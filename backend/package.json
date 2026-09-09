@@ -9,6 +9,7 @@
     "migrate": "node src/database/migrate.js"
   },
   "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
     "axios": "^1.20.0",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.41.0",
@@ -19,7 +20,9 @@
     "ioredis": "^5.5.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
-    "pg": "^8.13.3"
+    "pg": "^8.13.3",
+    "pino": "^10.3.1",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "nodemon": "^3.1.9"

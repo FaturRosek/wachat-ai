@@ -1,60 +1,327 @@
-const axios = require('axios');
-const WhatsappAccountModel = require('../models/whatsappAccountModel');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const pino = require('pino');
+const QRCode = require('qrcode');
+const fs = require('fs');
+const path = require('path');
+const WhatsappSessionModel = require('../models/whatsappSessionModel');
 const ContactModel = require('../models/contactModel');
-const ConversationModel = require('../models/conversationModel');
 const MessageModel = require('../models/messageModel');
+const { formatPhoneNumber } = require('../utils/phoneValidator');
 
-const GRAPH_API_BASE_URL = process.env.WHATSAPP_API_URL || 'https://graph.facebook.com/v21.0';
+const SESSIONS_BASE_DIR = path.join(__dirname, '../../sessions');
 
-const WhatsappService = {
-  verifyWebhookChallenge(mode, token, challenge) {
-    const expectedToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || 'wachat_ai_webhook_verify_token_secret';
-    if (mode === 'subscribe' && token === expectedToken) {
-      return challenge;
+if (!fs.existsSync(SESSIONS_BASE_DIR)) {
+  fs.mkdirSync(SESSIONS_BASE_DIR, { recursive: true });
+}
+
+class WhatsappService {
+  constructor() {
+    this.sessions = new Map();
+  }
+
+  getSessionKey(userId, sessionName = 'default') {
+    return `${userId}_${sessionName}`;
+  }
+
+  getSessionDir(userId, sessionName = 'default') {
+    const sessionDir = path.join(SESSIONS_BASE_DIR, `${userId}_${sessionName}`);
+    if (!fs.existsSync(sessionDir)) {
+      fs.mkdirSync(sessionDir, { recursive: true });
     }
-    return null;
-  },
+    return sessionDir;
+  }
 
-  async sendTextMessage({ toPhone, messageText, phoneNumberId, accessToken }) {
-    const cleanPhone = toPhone.replace(/[^0-9]/g, '');
-    const url = `${GRAPH_API_BASE_URL}/${phoneNumberId}/messages`;
+  async initSession(userId, sessionName = 'default', forceRestart = false) {
+    const key = this.getSessionKey(userId, sessionName);
+    const existing = this.sessions.get(key);
 
-    const payload = {
-      messaging_product: 'whatsapp',
-      recipient_type: 'individual',
-      to: cleanPhone,
-      type: 'text',
-      text: {
-        preview_url: false,
-        body: messageText
+    if (existing && existing.sock && !forceRestart) {
+      if (existing.status === 'CONNECTED') {
+        return {
+          status: 'CONNECTED',
+          phoneNumber: existing.phoneNumber,
+          qr: null,
+          qrImage: null
+        };
       }
-    };
+      if (existing.status === 'SCAN_QR' && existing.qrImage) {
+        return {
+          status: 'SCAN_QR',
+          phoneNumber: null,
+          qr: existing.qr,
+          qrImage: existing.qrImage
+        };
+      }
+    }
 
-    const response = await axios.post(url, payload, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
+    if (existing && existing.sock) {
+      try {
+        existing.sock.ev.removeAllListeners();
+        existing.sock.end();
+      } catch (e) {}
+      this.sessions.delete(key);
+    }
+
+    const sessionDir = this.getSessionDir(userId, sessionName);
+    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+    const { version } = await fetchLatestBaileysVersion().catch(() => ({ version: [2, 3000, 1015901307] }));
+
+    await WhatsappSessionModel.upsert(userId, {
+      sessionName,
+      status: 'CONNECTING',
+      qrCode: null
+    });
+
+    const sessionState = {
+      sock: null,
+      status: 'CONNECTING',
+      qr: null,
+      qrImage: null,
+      phoneNumber: null
+    };
+    this.sessions.set(key, sessionState);
+
+    const sock = makeWASocket({
+      version,
+      auth: state,
+      logger: pino({ level: 'silent' }),
+      printQRInTerminal: true,
+      browser: ['WaChat AI', 'Chrome', '1.0.0'],
+      connectTimeoutMs: 60000,
+      defaultQueryTimeoutMs: 60000,
+      keepAliveIntervalMs: 30000,
+      generateHighQualityLinkPreview: true
+    });
+
+    sessionState.sock = sock;
+
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', async (update) => {
+      const { connection, lastDisconnect, qr } = update;
+
+      if (qr) {
+        sessionState.status = 'SCAN_QR';
+        sessionState.qr = qr;
+        try {
+          const qrDataUrl = await QRCode.toDataURL(qr);
+          sessionState.qrImage = qrDataUrl;
+          await WhatsappSessionModel.updateStatus(userId, 'SCAN_QR', {
+            qrCode: qrDataUrl,
+            sessionName
+          });
+          console.log(`[WhatsApp - ${userId}] QR Code generated. Ready to scan.`);
+        } catch (err) {
+          console.error('[WhatsApp] Error generating QR code image:', err.message);
+        }
+      }
+
+      if (connection === 'open') {
+        const userJid = sock.user?.id || '';
+        const rawPhone = userJid.split(':')[0] || userJid.split('@')[0];
+        sessionState.status = 'CONNECTED';
+        sessionState.qr = null;
+        sessionState.qrImage = null;
+        sessionState.phoneNumber = rawPhone;
+
+        await WhatsappSessionModel.updateStatus(userId, 'CONNECTED', {
+          phoneNumber: rawPhone,
+          qrCode: null,
+          sessionName
+        });
+        console.log(`[WhatsApp - ${userId}] Connected successfully as: ${rawPhone}`);
+      }
+
+      if (connection === 'close') {
+        const statusCode = lastDisconnect?.error?.output?.statusCode;
+        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+        console.log(`[WhatsApp - ${userId}] Connection closed. Reason/StatusCode: ${statusCode}, Should Reconnect: ${shouldReconnect}`);
+
+        if (statusCode === DisconnectReason.loggedOut) {
+          sessionState.status = 'DISCONNECTED';
+          sessionState.qr = null;
+          sessionState.qrImage = null;
+          sessionState.phoneNumber = null;
+
+          await WhatsappSessionModel.updateStatus(userId, 'DISCONNECTED', {
+            phoneNumber: null,
+            qrCode: null,
+            sessionName
+          });
+
+          try {
+            if (fs.existsSync(sessionDir)) {
+              fs.rmSync(sessionDir, { recursive: true, force: true });
+            }
+          } catch (e) {
+            console.error('[WhatsApp] Error deleting session folder:', e.message);
+          }
+
+          this.sessions.delete(key);
+        } else if (shouldReconnect) {
+          sessionState.status = 'RECONNECTING';
+          await WhatsappSessionModel.updateStatus(userId, 'RECONNECTING', {
+            qrCode: null,
+            sessionName
+          });
+          console.log(`[WhatsApp - ${userId}] Auto-reconnecting in 3 seconds...`);
+          setTimeout(() => {
+            this.initSession(userId, sessionName, true).catch(err => {
+              console.error(`[WhatsApp - ${userId}] Reconnection failed:`, err.message);
+            });
+          }, 3000);
+        } else {
+          sessionState.status = 'DISCONNECTED';
+          await WhatsappSessionModel.updateStatus(userId, 'DISCONNECTED', {
+            qrCode: null,
+            sessionName
+          });
+          this.sessions.delete(key);
+        }
       }
     });
 
-    return response.data;
-  },
+    sock.ev.on('messages.upsert', async ({ messages, type }) => {
+      if (type !== 'notify') return;
 
-  async sendOutboundMessage(userId, { toPhone, messageText, contactName = null }) {
-    if (!toPhone || !messageText) {
-      const error = new Error('Recipient phone number and message content are required');
+      for (const msg of messages) {
+        if (!msg.message || msg.key.fromMe) continue;
+
+        const remoteJid = msg.key.remoteJid;
+        if (!remoteJid || remoteJid.includes('@g.us') || remoteJid.includes('status@broadcast')) continue;
+
+        const rawPhone = remoteJid.split('@')[0];
+        const validation = formatPhoneNumber(rawPhone);
+        const senderPhone = validation.isValid ? validation.formattedPhone : rawPhone;
+        const senderName = msg.pushName || senderPhone;
+        const textContent = msg.message.conversation ||
+          msg.message.extendedTextMessage?.text ||
+          msg.message.imageMessage?.caption ||
+          '[Media/Other message]';
+
+        try {
+          const contact = await ContactModel.findOrCreate(userId, {
+            name: senderName,
+            phone: senderPhone
+          });
+
+          const createdMessage = await MessageModel.create({
+            userId,
+            contactId: contact.id,
+            phone: senderPhone,
+            content: textContent,
+            direction: 'INCOMING',
+            status: 'DELIVERED',
+            sentAt: new Date(Number(msg.messageTimestamp) * 1000)
+          });
+
+          console.log(`[WhatsApp Inbound - ${userId}] Message from ${senderPhone}: ${textContent}`);
+        } catch (dbErr) {
+          console.error('[WhatsApp Inbound DB Error]:', dbErr.message);
+        }
+      }
+    });
+
+    return {
+      status: sessionState.status,
+      phoneNumber: sessionState.phoneNumber,
+      qr: sessionState.qr,
+      qrImage: sessionState.qrImage
+    };
+  }
+
+  async getSessionStatus(userId, sessionName = 'default') {
+    const key = this.getSessionKey(userId, sessionName);
+    const sessionState = this.sessions.get(key);
+
+    const dbSession = await WhatsappSessionModel.getByUserId(userId, sessionName);
+
+    if (sessionState) {
+      return {
+        status: sessionState.status,
+        phoneNumber: sessionState.phoneNumber || dbSession?.phone_number || null,
+        qrCode: sessionState.qrImage || dbSession?.qr_code || null,
+        sessionName,
+        updatedAt: dbSession?.updated_at || new Date()
+      };
+    }
+
+    if (dbSession) {
+      return {
+        status: dbSession.status,
+        phoneNumber: dbSession.phone_number,
+        qrCode: dbSession.qr_code,
+        sessionName: dbSession.session_name,
+        updatedAt: dbSession.updated_at
+      };
+    }
+
+    return {
+      status: 'DISCONNECTED',
+      phoneNumber: null,
+      qrCode: null,
+      sessionName,
+      updatedAt: null
+    };
+  }
+
+  async disconnectSession(userId, sessionName = 'default') {
+    const key = this.getSessionKey(userId, sessionName);
+    const sessionState = this.sessions.get(key);
+
+    if (sessionState && sessionState.sock) {
+      try {
+        await sessionState.sock.logout();
+      } catch (err) {
+        try {
+          sessionState.sock.end();
+        } catch (e) {}
+      }
+    }
+
+    this.sessions.delete(key);
+
+    const sessionDir = path.join(SESSIONS_BASE_DIR, `${userId}_${sessionName}`);
+    try {
+      if (fs.existsSync(sessionDir)) {
+        fs.rmSync(sessionDir, { recursive: true, force: true });
+      }
+    } catch (e) {
+      console.error('[WhatsApp] Error removing session directory:', e.message);
+    }
+
+    await WhatsappSessionModel.updateStatus(userId, 'DISCONNECTED', {
+      phoneNumber: null,
+      qrCode: null,
+      sessionName
+    });
+
+    return {
+      status: 'DISCONNECTED',
+      message: 'WhatsApp session disconnected and logged out.'
+    };
+  }
+
+  async sendTextMessage(userId, { toPhone, messageText, contactName = null, sessionName = 'default' }) {
+    const phoneCheck = formatPhoneNumber(toPhone);
+    if (!phoneCheck.isValid) {
+      const error = new Error(phoneCheck.error || 'Invalid phone number format');
       error.statusCode = 400;
       throw error;
     }
 
-    const cleanPhone = toPhone.replace(/[^0-9]/g, '');
+    if (!messageText || typeof messageText !== 'string' || messageText.trim() === '') {
+      const error = new Error('Message text cannot be empty');
+      error.statusCode = 400;
+      throw error;
+    }
 
-    let account = await WhatsappAccountModel.getByUserId(userId);
-    let phoneNumberId = account?.phone_number_id || process.env.WHATSAPP_PHONE_NUMBER_ID;
-    let accessToken = account?.access_token || process.env.WHATSAPP_ACCESS_TOKEN;
+    const cleanPhone = phoneCheck.formattedPhone;
+    const key = this.getSessionKey(userId, sessionName);
+    const sessionState = this.sessions.get(key);
 
-    if (!phoneNumberId || !accessToken) {
-      const error = new Error('WhatsApp credentials not configured. Please connect WhatsApp account first.');
+    if (!sessionState || !sessionState.sock || sessionState.status !== 'CONNECTED') {
+      const error = new Error('WhatsApp session is not connected. Please scan QR code first.');
       error.statusCode = 400;
       throw error;
     }
@@ -64,149 +331,56 @@ const WhatsappService = {
       phone: cleanPhone
     });
 
-    const conversation = await ConversationModel.findOrCreate(userId, contact.id);
-
-    const pendingMessage = await MessageModel.create({
-      conversationId: conversation.id,
-      direction: 'OUTBOUND',
-      type: 'text',
-      content: messageText,
-      status: 'PENDING'
+    const pendingRecord = await MessageModel.create({
+      userId,
+      contactId: contact.id,
+      phone: cleanPhone,
+      content: messageText.trim(),
+      direction: 'OUTGOING',
+      status: 'PENDING',
+      sentAt: null
     });
 
+    const jid = `${cleanPhone}@s.whatsapp.net`;
+
     try {
-      const apiResponse = await this.sendTextMessage({
-        toPhone: cleanPhone,
-        messageText,
-        phoneNumberId,
-        accessToken
-      });
-
-      const whatsappMessageId = apiResponse?.messages?.[0]?.id || null;
-
-      const updatedMessage = await MessageModel.updateStatusByWhatsappId(
-        whatsappMessageId,
-        'SENT',
-        new Date()
-      );
-
-      const finalMessage = updatedMessage || await MessageModel.create({
-        conversationId: conversation.id,
-        direction: 'OUTBOUND',
-        type: 'text',
-        content: messageText,
-        whatsappMessageId,
-        status: 'SENT',
-        sentAt: new Date()
-      });
-
-      await ConversationModel.updateLastMessage(conversation.id);
+      const sent = await sessionState.sock.sendMessage(jid, { text: messageText.trim() });
+      const updatedRecord = await MessageModel.updateStatus(pendingRecord.id, 'SENT', new Date());
 
       return {
-        message: finalMessage,
-        conversationId: conversation.id,
+        messageId: sent?.key?.id,
+        record: updatedRecord,
         contact
       };
-    } catch (apiError) {
-      const errorMsg = apiError.response?.data?.error?.message || apiError.message;
-      await MessageModel.updateStatusByWhatsappId(pendingMessage.id, 'FAILED');
-      const err = new Error(`WhatsApp API Error: ${errorMsg}`);
-      err.statusCode = apiError.response?.status || 500;
-      throw err;
+    } catch (sendError) {
+      await MessageModel.updateStatus(pendingRecord.id, 'FAILED', null);
+      const error = new Error(`Failed to send WhatsApp message: ${sendError.message}`);
+      error.statusCode = 500;
+      throw error;
     }
-  },
+  }
 
-  async processWebhook(body) {
-    if (body.object !== 'whatsapp_business_account') {
-      return { handled: false, reason: 'Invalid object type' };
-    }
-
-    const entries = body.entry || [];
-    for (const entry of entries) {
-      const changes = entry.changes || [];
-      for (const change of changes) {
-        if (change.field !== 'messages') continue;
-
-        const value = change.value;
-        const metadata = value.metadata;
-        const phoneNumberId = metadata?.phone_number_id;
-
-        let account = null;
-        if (phoneNumberId) {
-          account = await WhatsappAccountModel.getByPhoneNumberId(phoneNumberId);
-        }
-        if (!account) {
-          account = await WhatsappAccountModel.getFirstActiveAccount();
-        }
-
-        if (value.statuses && Array.isArray(value.statuses)) {
-          for (const statusItem of value.statuses) {
-            const wamid = statusItem.id;
-            const statusStr = (statusItem.status || '').toUpperCase();
-            const timestamp = statusItem.timestamp 
-              ? new Date(parseInt(statusItem.timestamp, 10) * 1000) 
-              : new Date();
-
-            if (['SENT', 'DELIVERED', 'READ', 'FAILED'].includes(statusStr)) {
-              await MessageModel.updateStatusByWhatsappId(wamid, statusStr, timestamp);
-            }
-          }
-        }
-
-        if (value.messages && Array.isArray(value.messages)) {
-          for (const msg of value.messages) {
-            const fromPhone = msg.from;
-            const wamid = msg.id;
-            const msgType = msg.type;
-            let msgContent = '';
-
-            if (msgType === 'text') {
-              msgContent = msg.text?.body || '';
-            } else if (msgType === 'image') {
-              msgContent = msg.image?.caption || '[Image]';
-            } else if (msgType === 'interactive') {
-              msgContent = msg.interactive?.button_reply?.title || msg.interactive?.list_reply?.title || '[Interactive Response]';
-            } else {
-              msgContent = `[${msgType}]`;
-            }
-
-            const senderProfile = (value.contacts && value.contacts[0]?.profile?.name) || fromPhone;
-
-            let userId = account?.user_id;
-            if (!userId) {
-              const { rows } = await require('../config/database').query('SELECT id FROM users ORDER BY created_at ASC LIMIT 1');
-              if (rows.length > 0) {
-                userId = rows[0].id;
-              }
-            }
-
-            if (userId) {
-              const contact = await ContactModel.findOrCreate(userId, {
-                name: senderProfile,
-                phone: fromPhone
-              });
-
-              const conversation = await ConversationModel.findOrCreate(userId, contact.id);
-
-              await MessageModel.create({
-                conversationId: conversation.id,
-                direction: 'INBOUND',
-                type: msgType,
-                content: msgContent,
-                whatsappMessageId: wamid,
-                status: 'DELIVERED',
-                sentAt: new Date(parseInt(msg.timestamp, 10) * 1000)
-              });
-
-              await ConversationModel.updateLastMessage(conversation.id);
-            }
-          }
+  async restoreAllSavedSessions() {
+    try {
+      const activeSessions = await WhatsappSessionModel.getAllActiveSessions();
+      console.log(`[WhatsApp] Restoring ${activeSessions.length} active WhatsApp sessions...`);
+      for (const session of activeSessions) {
+        const sessionDir = path.join(SESSIONS_BASE_DIR, `${session.user_id}_${session.session_name}`);
+        if (fs.existsSync(sessionDir)) {
+          this.initSession(session.user_id, session.session_name).catch(err => {
+            console.error(`[WhatsApp] Failed restoring session for user ${session.user_id}:`, err.message);
+          });
+        } else {
+          await WhatsappSessionModel.updateStatus(session.user_id, 'DISCONNECTED', {
+            sessionName: session.session_name
+          });
         }
       }
+    } catch (err) {
+      console.error('[WhatsApp] Error during restoreAllSavedSessions:', err.message);
     }
-
-    return { handled: true };
   }
-};
+}
 
-module.exports = WhatsappService;
+const whatsappServiceInstance = new WhatsappService();
+module.exports = whatsappServiceInstance;

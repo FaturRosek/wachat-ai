@@ -7,6 +7,7 @@ router.use(authMiddleware);
 
 router.post('/', MessageController.sendMessage);
 router.get('/', MessageController.getMessages);
-router.get('/conversation/:conversationId', MessageController.getConversationMessages);
+router.get('/history/:phone', MessageController.getPhoneHistory);
+router.get('/:id', MessageController.getMessageById);
 
 module.exports = router;

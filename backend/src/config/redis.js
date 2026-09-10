@@ -7,7 +7,8 @@ const redisConfig = process.env.REDIS_URL
       maxRetriesPerRequest: null,
       enableReadyCheck: false,
       retryStrategy(times) {
-        const delay = Math.min(times * 50, 2000);
+        if (times > 3) return null;
+        const delay = Math.min(times * 100, 1000);
         return delay;
       }
     }
@@ -18,7 +19,8 @@ const redisConfig = process.env.REDIS_URL
       maxRetriesPerRequest: null,
       enableReadyCheck: false,
       retryStrategy(times) {
-        const delay = Math.min(times * 50, 2000);
+        if (times > 3) return null;
+        const delay = Math.min(times * 100, 1000);
         return delay;
       }
     };
@@ -28,7 +30,11 @@ const createRedisConnection = () => {
   if (redisConfig.url) {
     client = new Redis(redisConfig.url, {
       maxRetriesPerRequest: null,
-      enableReadyCheck: false
+      enableReadyCheck: false,
+      retryStrategy(times) {
+        if (times > 3) return null;
+        return Math.min(times * 100, 1000);
+      }
     });
   } else {
     client = new Redis(redisConfig);
@@ -39,21 +45,43 @@ const createRedisConnection = () => {
   });
 
   client.on('error', (err) => {
-    console.warn(`[Redis Warning] ${err.message}`);
+    // Suppress connection refused spam
+    if (err.code !== 'ECONNREFUSED') {
+      console.warn(`[Redis Warning] ${err.message}`);
+    }
   });
 
   return client;
 };
 
 const testRedisConnection = async () => {
+  let client;
   try {
-    const client = createRedisConnection();
+    const opts = redisConfig.url
+      ? redisConfig.url
+      : {
+          ...redisConfig,
+          maxRetriesPerRequest: 1,
+          retryStrategy: () => null,
+          connectTimeout: 1500,
+          lazyConnect: true
+        };
+    client = typeof opts === 'string'
+      ? new Redis(opts, { lazyConnect: true, retryStrategy: () => null })
+      : new Redis(opts);
+
+    client.on('error', () => {});
+
+    await client.connect();
     const ping = await client.ping();
     await client.quit();
     console.log(`[Redis] Connection test succeeded: PING -> ${ping}`);
     return true;
   } catch (error) {
-    console.warn(`[Redis Warning] Test connection failed: ${error.message}`);
+    if (client) {
+      try { client.disconnect(); } catch (e) {}
+    }
+    console.log(`[Redis Info] Redis is offline (optional service): ${error.message}`);
     return false;
   }
 };

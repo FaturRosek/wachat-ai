@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, makeCacheableSignalKeyStore, DisconnectReason, fetchLatestBaileysVersion, Browsers } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const QRCode = require('qrcode');
 const fs = require('fs');
@@ -63,8 +63,20 @@ class WhatsappService {
     }
 
     const sessionDir = this.getSessionDir(userId, sessionName);
+
+    if (forceRestart) {
+      try {
+        if (fs.existsSync(sessionDir)) {
+          fs.rmSync(sessionDir, { recursive: true, force: true });
+          fs.mkdirSync(sessionDir, { recursive: true });
+        }
+      } catch (e) {
+        console.error('[WhatsApp] Error resetting session dir:', e.message);
+      }
+    }
+
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-    const { version } = await fetchLatestBaileysVersion().catch(() => ({ version: [2, 3000, 1015901307] }));
+    const { version } = await fetchLatestBaileysVersion().catch(() => ({ version: [2, 3000, 1043857760] }));
 
     await WhatsappSessionModel.upsert(userId, {
       sessionName,
@@ -81,16 +93,24 @@ class WhatsappService {
     };
     this.sessions.set(key, sessionState);
 
+    const logger = pino({ level: 'silent' });
+
     const sock = makeWASocket({
       version,
-      auth: state,
-      logger: pino({ level: 'silent' }),
-      printQRInTerminal: true,
-      browser: ['WaChat AI', 'Chrome', '1.0.0'],
+      auth: {
+        creds: state.creds,
+        keys: makeCacheableSignalKeyStore(state.keys, logger)
+      },
+      logger,
+      printQRInTerminal: false,
+      browser: ['Mac OS', 'Chrome', '14.4.1'],
+      syncFullHistory: true,
+      markOnlineOnConnect: false,
       connectTimeoutMs: 60000,
-      defaultQueryTimeoutMs: 60000,
-      keepAliveIntervalMs: 30000,
-      generateHighQualityLinkPreview: true
+      defaultQueryTimeoutMs: 0,
+      keepAliveIntervalMs: 10000,
+      generateHighQualityLinkPreview: false,
+      getMessage: async () => ({ conversation: '' })
     });
 
     sessionState.sock = sock;
@@ -110,7 +130,13 @@ class WhatsappService {
             qrCode: qrDataUrl,
             sessionName
           });
-          console.log(`[WhatsApp - ${userId}] QR Code generated. Ready to scan.`);
+          console.log(`\n======================================================`);
+          console.log(`[WhatsApp - ${userId}] QR Code siap discan dari HP atau Web:`);
+          try {
+            const qrcodeTerminal = require('qrcode-terminal');
+            qrcodeTerminal.generate(qr, { small: true });
+          } catch (e) {}
+          console.log(`======================================================\n`);
         } catch (err) {
           console.error('[WhatsApp] Error generating QR code image:', err.message);
         }
@@ -164,12 +190,13 @@ class WhatsappService {
             qrCode: null,
             sessionName
           });
-          console.log(`[WhatsApp - ${userId}] Auto-reconnecting in 3 seconds...`);
+          const delay = statusCode === DisconnectReason.restartRequired ? 500 : 2000;
+          console.log(`[WhatsApp - ${userId}] Auto-reconnecting in ${delay}ms...`);
           setTimeout(() => {
-            this.initSession(userId, sessionName, true).catch(err => {
+            this.initSession(userId, sessionName, false).catch(err => {
               console.error(`[WhatsApp - ${userId}] Reconnection failed:`, err.message);
             });
-          }, 3000);
+          }, delay);
         } else {
           sessionState.status = 'DISCONNECTED';
           await WhatsappSessionModel.updateStatus(userId, 'DISCONNECTED', {
@@ -246,11 +273,11 @@ class WhatsappService {
       };
     }
 
-    if (dbSession) {
+    if (dbSession && dbSession.status === 'CONNECTED') {
       return {
         status: dbSession.status,
         phoneNumber: dbSession.phone_number,
-        qrCode: dbSession.qr_code,
+        qrCode: null,
         sessionName: dbSession.session_name,
         updatedAt: dbSession.updated_at
       };

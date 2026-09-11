@@ -326,32 +326,32 @@ export default function WhatsappConnectionPage({ waStatus, onRefreshStatus }) {
                       </span>
                       
                       {/* Big Code View */}
-                      <div className="my-2 py-3 px-6 bg-emerald-500/10 border-2 border-dashed border-emerald-500/50 rounded-2xl flex items-center justify-center gap-3">
-                        <span className="text-3xl sm:text-4xl font-black font-mono tracking-widest text-emerald-400 select-all">
+                      <div className="my-2 py-3 px-3 sm:px-6 bg-emerald-500/10 border-2 border-dashed border-emerald-500/50 rounded-2xl flex items-center justify-center gap-2 sm:gap-3 w-full max-w-xs sm:max-w-sm">
+                        <span className="text-2xl sm:text-4xl font-black font-mono tracking-widest text-emerald-400 select-all break-all">
                           {waStatus.pairingCode}
                         </span>
                         <button
                           onClick={handleCopyCode}
                           title="Salin Kode"
-                          className="p-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 transition"
+                          className="p-2 sm:p-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 transition shrink-0"
                         >
                           {copied ? <Check className="w-5 h-5 text-emerald-400" /> : <Copy className="w-5 h-5" />}
                         </button>
                       </div>
 
                       {copied && (
-                        <p className="text-xs text-emerald-400 font-semibold mt-1 animate-fadeIn">
+                        <p className="text-xs text-emerald-400 font-semibold mt-1 animate-fadeIn text-center">
                           ✅ Kode berhasil disalin ke clipboard!
                         </p>
                       )}
 
                       <div className="mt-3 flex items-center space-x-2 text-xs text-blue-400 bg-blue-500/10 px-3 py-1.5 rounded-full border border-blue-500/20 font-mono">
-                        <Phone className="w-3.5 h-3.5" />
-                        <span>+{waStatus.pairingPhone || pairPhoneInput}</span>
+                        <Phone className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">+{waStatus.pairingPhone || pairPhoneInput}</span>
                       </div>
 
-                      <div className="mt-4 flex items-center space-x-2 text-xs text-slate-400">
-                        <Radio className="w-3.5 h-3.5 text-emerald-400 animate-ping" />
+                      <div className="mt-4 flex items-center space-x-2 text-xs text-slate-400 text-center">
+                        <Radio className="w-3.5 h-3.5 text-emerald-400 animate-ping shrink-0" />
                         <span>Menunggu Anda memasukkan kode di aplikasi WhatsApp HP...</span>
                       </div>
 

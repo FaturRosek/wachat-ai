@@ -79,21 +79,21 @@ export default function ContactsPage({ setActiveTab }) {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-100 tracking-tight">Contact Book</h1>
-          <p className="text-sm text-slate-400">Manage audience and customer WhatsApp contact list</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-100 tracking-tight">Contact Book</h1>
+          <p className="text-xs sm:text-sm text-slate-400">Manage audience and customer WhatsApp contact list</p>
         </div>
 
         <button
           onClick={openAddModal}
-          className="flex items-center space-x-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl text-sm shadow-lg shadow-emerald-500/20 transition w-fit"
+          className="w-full sm:w-auto flex items-center justify-center space-x-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl text-sm shadow-lg shadow-emerald-500/20 transition"
         >
           <Plus className="w-4 h-4" />
           <span>Add Contact</span>
         </button>
       </div>
 
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm flex items-center justify-between">
-        <div className="relative w-full max-w-md">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-4 shadow-sm">
+        <div className="relative w-full">
           <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
           <input
             type="text"
@@ -113,52 +113,92 @@ export default function ContactsPage({ setActiveTab }) {
             No contacts found. Click "Add Contact" to create one.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm text-slate-300">
-              <thead className="bg-slate-950/80 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-800">
-                <tr>
-                  <th className="px-6 py-4">Name</th>
-                  <th className="px-6 py-4">Phone Number</th>
-                  <th className="px-6 py-4">Created At</th>
-                  <th className="px-6 py-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/80">
-                {contacts.map((c) => (
-                  <tr key={c.id} className="hover:bg-slate-800/30 transition">
-                    <td className="px-6 py-4 font-semibold text-slate-200">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-8 h-8 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-xs">
-                          {c.name.charAt(0).toUpperCase()}
-                        </div>
-                        <span>{c.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 font-mono text-emerald-400">+{c.phone}</td>
-                    <td className="px-6 py-4 text-slate-500 text-xs">
-                      {new Date(c.created_at).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4 text-right space-x-2">
-                      <button
-                        onClick={() => openEditModal(c)}
-                        className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
-                        title="Edit Contact"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(c.id, c.name)}
-                        className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition"
-                        title="Delete Contact"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
+          <>
+            {/* Desktop Table View (>= md) */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left text-sm text-slate-300">
+                <thead className="bg-slate-950/80 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-800">
+                  <tr>
+                    <th className="px-6 py-4">Name</th>
+                    <th className="px-6 py-4">Phone Number</th>
+                    <th className="px-6 py-4">Created At</th>
+                    <th className="px-6 py-4 text-right">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-800/80">
+                  {contacts.map((c) => (
+                    <tr key={c.id} className="hover:bg-slate-800/30 transition">
+                      <td className="px-6 py-4 font-semibold text-slate-200">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-8 h-8 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-xs">
+                            {c.name.charAt(0).toUpperCase()}
+                          </div>
+                          <span>{c.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 font-mono text-emerald-400">+{c.phone}</td>
+                      <td className="px-6 py-4 text-slate-500 text-xs">
+                        {new Date(c.created_at).toLocaleDateString()}
+                      </td>
+                      <td className="px-6 py-4 text-right space-x-2">
+                        <button
+                          onClick={() => openEditModal(c)}
+                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+                          title="Edit Contact"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(c.id, c.name)}
+                          className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition"
+                          title="Delete Contact"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Cards View (< md) */}
+            <div className="md:hidden divide-y divide-slate-800/80">
+              {contacts.map((c) => (
+                <div key={c.id} className="p-4 flex items-center justify-between gap-3">
+                  <div className="flex items-center space-x-3 min-w-0">
+                    <div className="w-10 h-10 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-sm shrink-0">
+                      {c.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm text-slate-100 truncate">{c.name}</p>
+                      <p className="font-mono text-xs text-emerald-400 truncate">+{c.phone}</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">
+                        Ditambahkan {new Date(c.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-1.5 shrink-0">
+                    <button
+                      onClick={() => openEditModal(c)}
+                      className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+                      title="Edit Contact"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(c.id, c.name)}
+                      className="p-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition"
+                      title="Delete Contact"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
 

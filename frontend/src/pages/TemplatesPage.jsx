@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import apiClient from '../api/apiClient';
-import { FileText, Search, Plus, Trash2, Edit2, Copy, X, Sparkles } from 'lucide-react';
+import { FileText, Search, Plus, Trash2, Edit2, Copy, X } from 'lucide-react';
 
-export default function TemplatesPage({ setActiveTab }) {
+export default function TemplatesPage() {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -83,21 +83,21 @@ export default function TemplatesPage({ setActiveTab }) {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-100 tracking-tight">Message Templates</h1>
-          <p className="text-sm text-slate-400">Create reusable message templates with dynamic variables</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-100 tracking-tight">Message Templates</h1>
+          <p className="text-xs sm:text-sm text-slate-400">Create reusable message templates with dynamic variables</p>
         </div>
 
         <button
           onClick={openAddModal}
-          className="flex items-center space-x-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl text-sm shadow-lg shadow-emerald-500/20 transition w-fit"
+          className="w-full sm:w-auto flex items-center justify-center space-x-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl text-sm shadow-lg shadow-emerald-500/20 transition"
         >
           <Plus className="w-4 h-4" />
           <span>Add Template</span>
         </button>
       </div>
 
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm flex items-center justify-between">
-        <div className="relative w-full max-w-md">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-4 shadow-sm">
+        <div className="relative w-full">
           <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
           <input
             type="text"

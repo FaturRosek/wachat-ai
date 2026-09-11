@@ -39,21 +39,21 @@ export default function HistoryPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-100 tracking-tight">Message History</h1>
-          <p className="text-sm text-slate-400">View real-time incoming and outgoing WhatsApp messages</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-100 tracking-tight">Message History</h1>
+          <p className="text-xs sm:text-sm text-slate-400">View real-time incoming and outgoing WhatsApp messages</p>
         </div>
 
         <button
           onClick={fetchMessages}
           disabled={loading}
-          className="flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2.5 rounded-xl text-sm font-semibold border border-slate-700/50 transition w-fit"
+          className="w-full sm:w-auto flex items-center justify-center space-x-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2.5 rounded-xl text-sm font-semibold border border-slate-700/50 transition"
         >
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           <span>Refresh</span>
         </button>
       </div>
 
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row gap-3 items-center justify-between">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
         <form onSubmit={handleSearchSubmit} className="relative w-full md:w-80">
           <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
           <input
@@ -65,13 +65,13 @@ export default function HistoryPage() {
           />
         </form>
 
-        <div className="flex items-center space-x-3 w-full md:w-auto">
-          <div className="flex items-center space-x-2">
-            <Filter className="w-4 h-4 text-slate-500" />
+        <div className="grid grid-cols-2 sm:flex items-center gap-2.5 sm:space-x-3 w-full md:w-auto">
+          <div className="flex items-center space-x-1.5 sm:space-x-2">
+            <Filter className="w-4 h-4 text-slate-500 shrink-0 hidden sm:inline" />
             <select
               value={direction}
               onChange={(e) => setDirection(e.target.value)}
-              className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-medium text-slate-300 focus:outline-none focus:border-emerald-500"
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 sm:px-3 py-2 text-xs font-medium text-slate-300 focus:outline-none focus:border-emerald-500"
             >
               <option value="">All Directions</option>
               <option value="OUTGOING">Outgoing (Sent)</option>
@@ -82,7 +82,7 @@ export default function HistoryPage() {
           <select
             value={status}
             onChange={(e) => setStatus(e.target.value)}
-            className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-medium text-slate-300 focus:outline-none focus:border-emerald-500"
+            className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 sm:px-3 py-2 text-xs font-medium text-slate-300 focus:outline-none focus:border-emerald-500"
           >
             <option value="">All Statuses</option>
             <option value="SENT">SENT</option>
@@ -108,34 +108,34 @@ export default function HistoryPage() {
             {messages.map((m) => {
               const isOut = m.direction === 'OUTGOING';
               return (
-                <div key={m.id} className="p-4 hover:bg-slate-800/30 transition flex items-start justify-between gap-4">
-                  <div className="flex items-start space-x-3.5">
-                    <div className={`p-2.5 rounded-xl shrink-0 ${
+                <div key={m.id} className="p-3.5 sm:p-4 hover:bg-slate-800/30 transition flex flex-col sm:flex-row sm:items-start justify-between gap-3 sm:gap-4">
+                  <div className="flex items-start space-x-3 min-w-0 flex-1">
+                    <div className={`p-2 sm:p-2.5 rounded-xl shrink-0 ${
                       isOut ? 'bg-emerald-500/10 text-emerald-400' : 'bg-blue-500/10 text-blue-400'
                     }`}>
-                      {isOut ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownLeft className="w-5 h-5" />}
+                      {isOut ? <ArrowUpRight className="w-4 h-4 sm:w-5 sm:h-5" /> : <ArrowDownLeft className="w-4 h-4 sm:w-5 sm:h-5" />}
                     </div>
 
-                    <div className="space-y-1">
-                      <div className="flex items-center space-x-2">
-                        <span className="font-semibold text-sm text-slate-200">
+                    <div className="space-y-1.5 min-w-0 flex-1">
+                      <div className="flex items-center space-x-2 flex-wrap gap-1">
+                        <span className="font-semibold text-xs sm:text-sm text-slate-200 truncate">
                           {m.contact_name ? `${m.contact_name} (+${m.phone})` : `+${m.phone}`}
                         </span>
-                        <span className={`text-[11px] px-2 py-0.5 rounded-md font-semibold ${
+                        <span className={`text-[10px] sm:text-[11px] px-2 py-0.5 rounded-md font-semibold ${
                           isOut ? 'bg-emerald-500/10 text-emerald-400' : 'bg-blue-500/10 text-blue-400'
                         }`}>
                           {m.direction}
                         </span>
                       </div>
 
-                      <p className="text-sm text-slate-300 whitespace-pre-wrap bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 max-w-2xl">
+                      <p className="text-xs sm:text-sm text-slate-300 whitespace-pre-wrap bg-slate-950/60 p-2.5 sm:p-3 rounded-xl border border-slate-800/80 max-w-2xl break-words">
                         {m.content}
                       </p>
                     </div>
                   </div>
 
-                  <div className="text-right shrink-0">
-                    <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                  <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-1 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-800/50">
+                    <span className={`inline-block px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold ${
                       m.status === 'SENT' || m.status === 'DELIVERED'
                         ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                         : m.status === 'FAILED'
@@ -144,8 +144,8 @@ export default function HistoryPage() {
                     }`}>
                       {m.status}
                     </span>
-                    <p className="text-xs text-slate-500 mt-1">
-                      {new Date(m.created_at).toLocaleString()}
+                    <p className="text-[10px] sm:text-xs text-slate-500">
+                      {new Date(m.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                     </p>
                   </div>
                 </div>

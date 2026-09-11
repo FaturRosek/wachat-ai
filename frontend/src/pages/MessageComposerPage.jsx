@@ -3,14 +3,11 @@ import apiClient from '../api/apiClient';
 import { 
   Send, 
   Users, 
-  FileText, 
   CheckCircle2, 
   AlertCircle, 
   Sparkles, 
   Repeat, 
-  Timer,
   User,
-  MessageSquare,
   RefreshCw
 } from 'lucide-react';
 
@@ -151,33 +148,33 @@ export default function MessageComposerPage({ waStatus }) {
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
       <div>
-        <h1 className="text-2xl font-bold text-slate-100 tracking-tight">Message Composer</h1>
-        <p className="text-sm text-slate-400">Kirim pesan WhatsApp ke nomor personal atau langsung ke grup</p>
+        <h1 className="text-xl sm:text-2xl font-bold text-slate-100 tracking-tight">Message Composer</h1>
+        <p className="text-xs sm:text-sm text-slate-400">Kirim pesan WhatsApp ke nomor personal atau langsung ke grup</p>
       </div>
 
       {!isConnected && (
-        <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center space-x-3 text-amber-400 text-sm">
+        <div className="p-3.5 sm:p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center space-x-3 text-amber-400 text-xs sm:text-sm">
           <AlertCircle className="w-5 h-5 shrink-0" />
           <span>WhatsApp saat ini belum terhubung. Pastikan status WhatsApp Connected sebelum mengirim pesan.</span>
         </div>
       )}
 
       {successMsg && (
-        <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex items-center space-x-3 text-emerald-400 text-sm">
+        <div className="p-3.5 sm:p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex items-center space-x-3 text-emerald-400 text-xs sm:text-sm">
           <CheckCircle2 className="w-5 h-5 shrink-0" />
           <span>{successMsg}</span>
         </div>
       )}
 
       {errorMsg && (
-        <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-2xl flex items-center space-x-3 text-rose-400 text-sm">
+        <div className="p-3.5 sm:p-4 bg-rose-500/10 border border-rose-500/30 rounded-2xl flex items-center space-x-3 text-rose-400 text-xs sm:text-sm">
           <AlertCircle className="w-5 h-5 shrink-0" />
           <span>{errorMsg}</span>
         </div>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="md:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm">
+        <div className="md:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm">
           {/* TAB PILIHAN TUJUAN (PERSONAL vs GRUP) */}
           <div className="flex bg-slate-950 p-1.5 rounded-xl border border-slate-800 mb-5">
             <button
@@ -188,13 +185,13 @@ export default function MessageComposerPage({ waStatus }) {
                 setPhone('');
                 setContactName('');
               }}
-              className={`flex-1 flex items-center justify-center space-x-2 py-2 text-xs font-bold rounded-lg transition ${
+              className={`flex-1 flex items-center justify-center space-x-1.5 sm:space-x-2 py-2 text-[11px] sm:text-xs font-bold rounded-lg transition ${
                 recipientType === 'personal'
                   ? 'bg-emerald-500 text-slate-950 shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <User className="w-3.5 h-3.5" />
+              <User className="w-3.5 h-3.5 shrink-0" />
               <span>👤 Kontak Personal</span>
             </button>
             <button
@@ -206,14 +203,14 @@ export default function MessageComposerPage({ waStatus }) {
                 setContactName('');
                 if (groups.length === 0 && isConnected) fetchGroups();
               }}
-              className={`flex-1 flex items-center justify-center space-x-2 py-2 text-xs font-bold rounded-lg transition ${
+              className={`flex-1 flex items-center justify-center space-x-1.5 sm:space-x-2 py-2 text-[11px] sm:text-xs font-bold rounded-lg transition ${
                 recipientType === 'group'
                   ? 'bg-emerald-500 text-slate-950 shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Users className="w-3.5 h-3.5" />
-              <span>👥 Grup WhatsApp {groups.length > 0 && `(${groups.length})`}</span>
+              <Users className="w-3.5 h-3.5 shrink-0" />
+              <span>👥 Grup WA {groups.length > 0 && `(${groups.length})`}</span>
             </button>
           </div>
 
@@ -450,7 +447,7 @@ export default function MessageComposerPage({ waStatus }) {
               </div>
 
               {repeatCount > 1 && (
-                <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
+                <div className="pt-2 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <label className="flex items-center space-x-2 cursor-pointer text-xs text-slate-300">
                     <input
                       type="checkbox"
@@ -459,7 +456,7 @@ export default function MessageComposerPage({ waStatus }) {
                       className="rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-0 w-4 h-4 cursor-pointer"
                     />
                     <div className="flex items-center space-x-1 text-emerald-400 font-semibold">
-                      <Sparkles className="w-3.5 h-3.5" />
+                      <Sparkles className="w-3.5 h-3.5 shrink-0" />
                       <span>Variasikan Kalimat Pesan dengan AI</span>
                     </div>
                   </label>

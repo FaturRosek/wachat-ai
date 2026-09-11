@@ -34,13 +34,13 @@ export default function AuthPage() {
       <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
-      <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl relative z-10 backdrop-blur-xl">
-        <div className="flex flex-col items-center text-center mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mb-4 shadow-lg shadow-emerald-500/10">
-            <MessageSquare className="w-7 h-7" />
+      <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-8 shadow-2xl relative z-10 backdrop-blur-xl">
+        <div className="flex flex-col items-center text-center mb-6 sm:mb-8">
+          <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mb-3 sm:mb-4 shadow-lg shadow-emerald-500/10">
+            <MessageSquare className="w-6 h-6 sm:w-7 sm:h-7" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-100 tracking-tight">WaChat AI</h1>
-          <p className="text-sm text-slate-400 mt-1">Smart WhatsApp Automation & Management</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-100 tracking-tight">WaChat AI</h1>
+          <p className="text-xs sm:text-sm text-slate-400 mt-1">Smart WhatsApp Automation & Management</p>
         </div>
 
         <div className="flex bg-slate-950/60 p-1 rounded-xl border border-slate-800 mb-6">

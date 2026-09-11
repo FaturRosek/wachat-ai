@@ -49,16 +49,16 @@ export default function DashboardPage({ setActiveTab, waStatus }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-100 tracking-tight">Dashboard Overview</h1>
-          <p className="text-sm text-slate-400">Monitor WhatsApp traffic, metrics, and quick actions</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-100 tracking-tight">Dashboard Overview</h1>
+          <p className="text-xs sm:text-sm text-slate-400">Monitor WhatsApp traffic, metrics, and quick actions</p>
         </div>
 
-        <div className="flex space-x-3">
+        <div className="flex space-x-3 w-full sm:w-auto">
           <button
             onClick={() => setActiveTab('compose')}
-            className="flex items-center space-x-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-4 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-emerald-500/20 transition"
+            className="w-full sm:w-auto flex items-center justify-center space-x-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-4 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-emerald-500/20 transition"
           >
             <Send className="w-4 h-4" />
             <span>Compose Message</span>
@@ -66,53 +66,53 @@ export default function DashboardPage({ setActiveTab, waStatus }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">WhatsApp Status</span>
-            <div className={`p-2 rounded-xl ${isConnected ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
-              <Smartphone className="w-5 h-5" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-2 sm:mb-3">
+            <span className="text-[10px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider">Status WA</span>
+            <div className={`p-1.5 sm:p-2 rounded-xl ${isConnected ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+              <Smartphone className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
           </div>
-          <div className="text-xl font-bold text-slate-100">
+          <div className="text-base sm:text-xl font-bold text-slate-100 truncate">
             {isConnected ? 'Connected' : 'Disconnected'}
           </div>
-          <p className="text-xs text-slate-400 mt-1 truncate">
-            {isConnected ? `+${waStatus?.phoneNumber || ''}` : 'QR Scan required'}
+          <p className="text-[11px] sm:text-xs text-slate-400 mt-1 truncate">
+            {isConnected ? `+${waStatus?.phoneNumber || ''}` : 'Belum aktif'}
           </p>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Messages</span>
-            <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400">
-              <History className="w-5 h-5" />
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-2 sm:mb-3">
+            <span className="text-[10px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Pesan</span>
+            <div className="p-1.5 sm:p-2 rounded-xl bg-blue-500/10 text-blue-400">
+              <History className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
           </div>
-          <div className="text-xl font-bold text-slate-100">{loading ? '...' : stats.totalMessages}</div>
-          <p className="text-xs text-slate-400 mt-1">Incoming & outgoing records</p>
+          <div className="text-base sm:text-xl font-bold text-slate-100">{loading ? '...' : stats.totalMessages}</div>
+          <p className="text-[11px] sm:text-xs text-slate-400 mt-1 truncate">Log pesan tercatat</p>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Saved Contacts</span>
-            <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400">
-              <Users className="w-5 h-5" />
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-2 sm:mb-3">
+            <span className="text-[10px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider">Kontak</span>
+            <div className="p-1.5 sm:p-2 rounded-xl bg-purple-500/10 text-purple-400">
+              <Users className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
           </div>
-          <div className="text-xl font-bold text-slate-100">{loading ? '...' : stats.totalContacts}</div>
-          <p className="text-xs text-slate-400 mt-1">Audience address book</p>
+          <div className="text-base sm:text-xl font-bold text-slate-100">{loading ? '...' : stats.totalContacts}</div>
+          <p className="text-[11px] sm:text-xs text-slate-400 mt-1 truncate">Buku kontak</p>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Templates</span>
-            <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400">
-              <FileText className="w-5 h-5" />
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-2 sm:mb-3">
+            <span className="text-[10px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider">Template</span>
+            <div className="p-1.5 sm:p-2 rounded-xl bg-amber-500/10 text-amber-400">
+              <FileText className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
           </div>
-          <div className="text-xl font-bold text-slate-100">{loading ? '...' : stats.totalTemplates}</div>
-          <p className="text-xs text-slate-400 mt-1">Reusable quick responses</p>
+          <div className="text-base sm:text-xl font-bold text-slate-100">{loading ? '...' : stats.totalTemplates}</div>
+          <p className="text-[11px] sm:text-xs text-slate-400 mt-1 truncate">Respon cepat</p>
         </div>
       </div>
 
@@ -137,9 +137,9 @@ export default function DashboardPage({ setActiveTab, waStatus }) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm">
+        <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-base text-slate-100">Recent Messages Activity</h3>
+            <h3 className="font-bold text-sm sm:text-base text-slate-100">Recent Messages Activity</h3>
             <button
               onClick={() => setActiveTab('history')}
               className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 flex items-center space-x-1"
@@ -151,28 +151,28 @@ export default function DashboardPage({ setActiveTab, waStatus }) {
 
           {stats.recentMessages.length === 0 ? (
             <div className="text-center py-10 border border-dashed border-slate-800 rounded-xl">
-              <p className="text-sm text-slate-500">Belum ada aktivitas pesan masuk/keluar.</p>
+              <p className="text-xs sm:text-sm text-slate-500">Belum ada aktivitas pesan masuk/keluar.</p>
             </div>
           ) : (
             <div className="divide-y divide-slate-800/60">
               {stats.recentMessages.map((msg) => (
-                <div key={msg.id} className="py-3 flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
+                <div key={msg.id} className="py-3 flex items-center justify-between gap-3">
+                  <div className="flex items-center space-x-2.5 sm:space-x-3 min-w-0">
+                    <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-[10px] sm:text-xs font-bold shrink-0 ${
                       msg.direction === 'OUTGOING' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-blue-500/20 text-blue-400'
                     }`}>
                       {msg.direction === 'OUTGOING' ? 'OUT' : 'IN'}
                     </div>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-200">{msg.contact_name || msg.phone}</p>
-                      <p className="text-xs text-slate-400 truncate max-w-md">{msg.content}</p>
+                    <div className="min-w-0">
+                      <p className="text-xs sm:text-sm font-semibold text-slate-200 truncate">{msg.contact_name || msg.phone}</p>
+                      <p className="text-[11px] sm:text-xs text-slate-400 truncate max-w-[160px] sm:max-w-xs md:max-w-md">{msg.content}</p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-800 text-slate-300">
+                  <div className="text-right shrink-0">
+                    <span className="inline-block px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold bg-slate-800 text-slate-300">
                       {msg.status}
                     </span>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
+                    <p className="text-[10px] sm:text-[11px] text-slate-500 mt-0.5">
                       {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </p>
                   </div>

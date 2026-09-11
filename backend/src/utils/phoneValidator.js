@@ -9,7 +9,6 @@ const formatPhoneNumber = (phone) => {
 
   const trimmed = phone.trim();
 
-  // Dukungan untuk WhatsApp Group JID (contoh: 120363411096753641@g.us)
   if (trimmed.endsWith('@g.us')) {
     return {
       isValid: true,

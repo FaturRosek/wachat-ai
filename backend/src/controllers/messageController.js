@@ -35,7 +35,6 @@ const MessageController = {
         });
       }
 
-      // ─── Pengiriman Berulang (Sequential Dispatch) ────────────────
       const phoneCheck = formatPhoneNumber(phone);
       if (!phoneCheck.isValid) {
         return res.status(400).json({

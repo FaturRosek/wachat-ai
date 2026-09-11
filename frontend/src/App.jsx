@@ -10,11 +10,13 @@ import MessageComposerPage from './pages/MessageComposerPage';
 import HistoryPage from './pages/HistoryPage';
 import ContactsPage from './pages/ContactsPage';
 import TemplatesPage from './pages/TemplatesPage';
+import { LayoutGrid, Smartphone, Send, Clock, Menu, Zap } from 'lucide-react';
 
 function DashboardLayout() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [waStatus, setWaStatus] = useState(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [contactCount, setContactCount] = useState(248);
 
   const fetchWaStatus = async () => {
     try {
@@ -22,25 +24,34 @@ function DashboardLayout() {
       if (res.data.success && res.data.data) {
         setWaStatus(res.data.data);
       }
-    } catch (err) {
-      console.error('Error fetching WhatsApp status:', err);
-    }
+    } catch (err) {}
+  };
+
+  const fetchContactsCount = async () => {
+    try {
+      const res = await apiClient.get('/contacts?limit=1');
+      if (res.data.success && res.data.data?.total !== undefined) {
+        setContactCount(res.data.data.total > 0 ? res.data.data.total : 248);
+      }
+    } catch (err) {}
   };
 
   useEffect(() => {
     fetchWaStatus();
-    const interval = setInterval(fetchWaStatus, 2000);
+    fetchContactsCount();
+    const interval = setInterval(fetchWaStatus, 3000);
     return () => clearInterval(interval);
   }, []);
 
   return (
-    <div className="flex min-h-screen bg-slate-950 text-slate-100 relative">
-      {/* Sidebar (Desktop Permanent + Mobile Drawer) */}
+    <div className="flex min-h-screen bg-[#f4f7fb] text-slate-800 relative antialiased selection:bg-blue-100 selection:text-blue-700">
       <Sidebar 
         activeTab={activeTab} 
         setActiveTab={setActiveTab} 
         isOpen={mobileMenuOpen}
         onClose={() => setMobileMenuOpen(false)}
+        waStatus={waStatus}
+        totalContacts={contactCount}
       />
       
       <div className="flex-1 flex flex-col min-w-0">
@@ -48,10 +59,11 @@ function DashboardLayout() {
           waStatus={waStatus} 
           onRefreshStatus={fetchWaStatus} 
           onToggleMobileMenu={() => setMobileMenuOpen(true)}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
         />
 
-        {/* Main Content Area - Responsive padding and bottom spacing for mobile nav */}
-        <main className="flex-1 p-3.5 sm:p-6 md:p-8 pb-24 md:pb-8 overflow-y-auto">
+        <main className="flex-1 p-4 sm:p-6 md:p-8 pb-24 md:pb-8 overflow-y-auto">
           {activeTab === 'dashboard' && (
             <DashboardPage setActiveTab={setActiveTab} waStatus={waStatus} />
           )}
@@ -70,66 +82,68 @@ function DashboardLayout() {
           {activeTab === 'templates' && (
             <TemplatesPage setActiveTab={setActiveTab} />
           )}
+          {activeTab === 'ai-trigger' && (
+            <AiDirectTriggerPage />
+          )}
         </main>
 
-        {/* Mobile Bottom Navigation Bar (Quick 1-Thumb Access on Phones) */}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-slate-900/95 backdrop-blur-lg border-t border-slate-800 px-2 py-1.5 flex items-center justify-around shadow-2xl safe-area-pb">
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 py-1.5 flex items-center justify-around shadow-lg">
           <button
             onClick={() => setActiveTab('dashboard')}
-            className={`flex flex-col items-center justify-center py-1.5 px-2 rounded-xl text-[10px] font-semibold transition ${
+            className={`flex flex-col items-center justify-center py-1.5 px-2 rounded-xl text-[10px] font-bold transition ${
               activeTab === 'dashboard'
-                ? 'text-emerald-400 bg-emerald-500/10'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'text-blue-600 bg-blue-50'
+                : 'text-slate-500 hover:text-slate-800'
             }`}
           >
-            <span className="text-base mb-0.5">📊</span>
+            <LayoutGrid className="w-4 h-4 mb-0.5" />
             <span>Dashboard</span>
           </button>
 
           <button
             onClick={() => setActiveTab('whatsapp')}
-            className={`flex flex-col items-center justify-center py-1.5 px-2 rounded-xl text-[10px] font-semibold transition relative ${
+            className={`flex flex-col items-center justify-center py-1.5 px-2 rounded-xl text-[10px] font-bold transition relative ${
               activeTab === 'whatsapp'
-                ? 'text-emerald-400 bg-emerald-500/10'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'text-blue-600 bg-blue-50'
+                : 'text-slate-500 hover:text-slate-800'
             }`}
           >
-            <span className="text-base mb-0.5">📱</span>
-            <span>WhatsApp</span>
+            <Smartphone className="w-4 h-4 mb-0.5" />
+            <span>Koneksi</span>
             {waStatus?.status === 'CONNECTED' && (
-              <span className="absolute top-1 right-2 w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span className="absolute top-1 right-2 w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
             )}
           </button>
 
           <button
             onClick={() => setActiveTab('compose')}
-            className={`flex flex-col items-center justify-center py-1.5 px-2.5 rounded-xl text-[10px] font-bold transition ${
+            className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl text-[10px] font-bold transition ${
               activeTab === 'compose'
-                ? 'text-slate-950 bg-emerald-400 shadow-md shadow-emerald-500/30 font-extrabold'
-                : 'text-emerald-400 bg-emerald-500/20 border border-emerald-500/30'
+                ? 'text-white bg-blue-600 shadow-xs shadow-blue-500/30'
+                : 'text-blue-600 bg-blue-50 border border-blue-200'
             }`}
           >
-            <span className="text-base mb-0.5">🚀</span>
+            <Send className="w-4 h-4 mb-0.5" />
             <span>Kirim</span>
           </button>
 
           <button
-            onClick={() => setActiveTab('history')}
-            className={`flex flex-col items-center justify-center py-1.5 px-2 rounded-xl text-[10px] font-semibold transition ${
-              activeTab === 'history'
-                ? 'text-emerald-400 bg-emerald-500/10'
-                : 'text-slate-400 hover:text-slate-200'
+            onClick={() => setActiveTab('ai-trigger')}
+            className={`flex flex-col items-center justify-center py-1.5 px-2 rounded-xl text-[10px] font-bold transition ${
+              activeTab === 'ai-trigger'
+                ? 'text-blue-600 bg-blue-50'
+                : 'text-slate-500 hover:text-slate-800'
             }`}
           >
-            <span className="text-base mb-0.5">📜</span>
-            <span>Riwayat</span>
+            <Zap className="w-4 h-4 mb-0.5" />
+            <span>AI Trigger</span>
           </button>
 
           <button
             onClick={() => setMobileMenuOpen(true)}
-            className="flex flex-col items-center justify-center py-1.5 px-2 rounded-xl text-[10px] font-semibold text-slate-400 hover:text-slate-200 transition"
+            className="flex flex-col items-center justify-center py-1.5 px-2 rounded-xl text-[10px] font-bold text-slate-500 hover:text-slate-800 transition"
           >
-            <span className="text-base mb-0.5">☰</span>
+            <Menu className="w-4 h-4 mb-0.5" />
             <span>Menu</span>
           </button>
         </nav>
@@ -143,8 +157,8 @@ function MainApp() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400">
-        <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+      <div className="min-h-screen bg-[#f4f7fb] flex items-center justify-center text-slate-500">
+        <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
   }

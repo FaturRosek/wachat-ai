@@ -45,7 +45,6 @@ const createRedisConnection = () => {
   });
 
   client.on('error', (err) => {
-    // Suppress connection refused spam
     if (err.code !== 'ECONNREFUSED') {
       console.warn(`[Redis Warning] ${err.message}`);
     }

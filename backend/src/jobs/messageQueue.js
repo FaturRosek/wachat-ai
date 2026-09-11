@@ -9,7 +9,6 @@ let dispatchQueue = null;
 let dispatchWorker = null;
 let isRedisActive = false;
 
-// Inisialisasi BullMQ jika Redis aktif
 try {
   const connection = redisConfig.url
     ? { url: redisConfig.url }
@@ -61,9 +60,6 @@ try {
   console.log(`[Queue Info] Fallback to in-memory async dispatcher: ${err.message}`);
 }
 
-/**
- * Core function that sends messages sequentially with delay
- */
 async function executeDispatchTask(data) {
   const {
     jobId,
@@ -92,7 +88,7 @@ async function executeDispatchTask(data) {
     try {
       console.log(`[Dispatcher] Sending message ${itemNum}/${messages.length} to ${targetPhone}...`);
       
-      const sentResult = await whatsappService.sendDirectMessage(
+      await whatsappService.sendDirectMessage(
         targetPhone,
         textMsg,
         sessionName,
@@ -109,7 +105,6 @@ async function executeDispatchTask(data) {
       console.error(`[Dispatcher] Failed sending message ${itemNum} to ${targetPhone}:`, err.message);
     }
 
-    // Jeda antar pesan (kecuali pesan terakhir)
     if (i < messages.length - 1) {
       const waitMs = Math.max(intervalSeconds, 1) * 1000;
       console.log(`[Dispatcher] Waiting ${waitMs / 1000}s before next message...`);
@@ -117,13 +112,11 @@ async function executeDispatchTask(data) {
     }
   }
 
-  // Update DB status
   if (jobId && userId) {
     const finalStatus = failCount === 0 ? 'COMPLETED' : (successCount > 0 ? 'PARTIAL' : 'FAILED');
     await SendingJobModel.updateStatus(jobId, userId, finalStatus, { completedAt: new Date() });
   }
 
-  // Kirim laporan ke WhatsApp Admin jika adminPhone ada
   if (adminPhone) {
     const reportText = `✅ *Laporan Pengiriman Selesai*\n\n` +
       `• Target: *${targetPhone}*\n` +
@@ -141,9 +134,6 @@ async function executeDispatchTask(data) {
   }
 }
 
-/**
- * Enqueue dispatch job (BullMQ or In-Memory fallback)
- */
 async function enqueueDispatch(data) {
   if (isRedisActive && dispatchQueue) {
     try {
@@ -155,7 +145,6 @@ async function enqueueDispatch(data) {
     }
   }
 
-  // In-memory async fallback
   console.log('[Queue] Running task asynchronously in background...');
   setImmediate(() => {
     executeDispatchTask(data).catch((err) => {

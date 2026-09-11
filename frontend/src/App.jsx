@@ -28,7 +28,8 @@ function DashboardLayout() {
 
   useEffect(() => {
     fetchWaStatus();
-    const interval = setInterval(fetchWaStatus, 4000);
+    // Poll lebih cepat (2 detik) supaya QR tampil segera setelah siap
+    const interval = setInterval(fetchWaStatus, 2000);
     return () => clearInterval(interval);
   }, []);
 

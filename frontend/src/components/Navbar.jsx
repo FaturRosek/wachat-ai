@@ -22,14 +22,19 @@ export default function Navbar({ waStatus, onRefreshStatus }) {
               <span className="w-2 h-2 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>
               Connected ({waStatus?.phoneNumber || 'Active'})
             </span>
+          ) : waStatus?.status === 'PAIRING_CODE' ? (
+            <span className="flex items-center text-xs font-semibold text-blue-400">
+              <span className="w-2 h-2 rounded-full bg-blue-500 mr-1.5 animate-pulse"></span>
+              Pairing Code Active
+            </span>
           ) : isScan ? (
             <span className="flex items-center text-xs font-semibold text-amber-400">
               <span className="w-2 h-2 rounded-full bg-amber-500 mr-1.5"></span>
               Scan QR Required
             </span>
           ) : isConnecting ? (
-            <span className="flex items-center text-xs font-semibold text-blue-400">
-              <span className="w-2 h-2 rounded-full bg-blue-500 mr-1.5 animate-ping"></span>
+            <span className="flex items-center text-xs font-semibold text-purple-400">
+              <span className="w-2 h-2 rounded-full bg-purple-500 mr-1.5 animate-ping"></span>
               Connecting...
             </span>
           ) : (

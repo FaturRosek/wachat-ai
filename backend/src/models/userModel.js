@@ -41,6 +41,12 @@ const UserModel = {
     const values = [name, email ? email.toLowerCase().trim() : null, id];
     const { rows } = await query(text, values);
     return rows[0] || null;
+  },
+
+  async getFirstUser() {
+    const text = `SELECT * FROM users ORDER BY created_at ASC LIMIT 1`;
+    const { rows } = await query(text);
+    return rows[0] || null;
   }
 };
 

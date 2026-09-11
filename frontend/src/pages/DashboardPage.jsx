@@ -116,10 +116,30 @@ export default function DashboardPage({ setActiveTab, waStatus }) {
         </div>
       </div>
 
+      {/* AI Dispatcher Command Center Card */}
+      <div className="bg-gradient-to-r from-emerald-950/40 via-slate-900 to-cyan-950/40 border border-emerald-500/20 rounded-2xl p-6 shadow-lg relative overflow-hidden">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 relative z-10">
+          <div>
+            <div className="inline-flex items-center space-x-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs px-3 py-1 rounded-full font-bold mb-2">
+              <span>🤖 AI WhatsApp Direct Trigger Active</span>
+            </div>
+            <h2 className="text-xl font-bold text-slate-100">Kendalikan Pengiriman Pesan Langsung dari WhatsApp</h2>
+            <p className="text-sm text-slate-300 mt-1 max-w-2xl">
+              Cukup kirim pesan WhatsApp ke nomor Bot server Anda dari nomor Admin. AI akan otomatis membedah instruksi, membuat variasi kalimat, dan mengirimkan ke target.
+            </p>
+          </div>
+          <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3 text-xs text-slate-300 font-mono">
+            <span className="text-emerald-400 font-semibold block mb-1">💡 Contoh Perintah di WA:</span>
+            <p className="text-slate-400">"Kirim pesan maaf 5x ke 081920xxxx"</p>
+            <p className="text-slate-400">"Kirim halo ke 081234567 jeda 5 detik"</p>
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-base text-slate-100">Recent Messages</h3>
+            <h3 className="font-bold text-base text-slate-100">Recent Messages Activity</h3>
             <button
               onClick={() => setActiveTab('history')}
               className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 flex items-center space-x-1"
@@ -131,7 +151,7 @@ export default function DashboardPage({ setActiveTab, waStatus }) {
 
           {stats.recentMessages.length === 0 ? (
             <div className="text-center py-10 border border-dashed border-slate-800 rounded-xl">
-              <p className="text-sm text-slate-500">No messages sent or received yet.</p>
+              <p className="text-sm text-slate-500">Belum ada aktivitas pesan masuk/keluar.</p>
             </div>
           ) : (
             <div className="divide-y divide-slate-800/60">
@@ -164,20 +184,20 @@ export default function DashboardPage({ setActiveTab, waStatus }) {
 
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col justify-between">
           <div>
-            <h3 className="font-bold text-base text-slate-100 mb-2">WhatsApp Device Status</h3>
-            <p className="text-xs text-slate-400 mb-4">Manage multi-device linked sessions</p>
+            <h3 className="font-bold text-base text-slate-100 mb-2">WhatsApp Bot Status</h3>
+            <p className="text-xs text-slate-400 mb-4">Nomor Server Bot Pengirim Otomatis</p>
 
             <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 mb-4">
               <div className="flex items-center space-x-3 mb-2">
                 <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
                 <span className="text-sm font-semibold text-slate-200">
-                  {isConnected ? 'Session Active' : 'Session Inactive'}
+                  {isConnected ? 'Bot Siap Menerima Perintah' : 'Bot Belum Terhubung'}
                 </span>
               </div>
               <p className="text-xs text-slate-400">
                 {isConnected 
-                  ? 'Your WhatsApp is connected and ready to send & receive automated chats.'
-                  : 'Scan the QR code to link your phone and activate automated messaging.'}
+                  ? `Bot aktif sebagai +${waStatus?.phoneNumber || ''}. Kirim chat ke nomor ini dari WA Anda untuk mulai dispatch pesan otomatis.`
+                  : 'Scan QR sekali saja untuk mengaktifkan nomor Bot server.'}
               </p>
             </div>
           </div>
@@ -186,7 +206,7 @@ export default function DashboardPage({ setActiveTab, waStatus }) {
             onClick={() => setActiveTab('whatsapp')}
             className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold py-2.5 rounded-xl text-sm border border-slate-700/50 transition flex items-center justify-center space-x-2"
           >
-            <span>{isConnected ? 'View Device Details' : 'Scan QR Code Now'}</span>
+            <span>{isConnected ? 'Kelola Koneksi WhatsApp' : 'Hubungkan WhatsApp (Kode / QR)'}</span>
             <ArrowUpRight className="w-4 h-4" />
           </button>
         </div>

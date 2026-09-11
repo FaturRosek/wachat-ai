@@ -3,11 +3,23 @@ const formatPhoneNumber = (phone) => {
     return {
       isValid: false,
       formattedPhone: null,
-      error: 'Phone number must be a non-empty string'
+      error: 'Phone number or group ID must be a non-empty string'
     };
   }
 
-  let cleaned = phone.replace(/[^0-9+]/g, '');
+  const trimmed = phone.trim();
+
+  // Dukungan untuk WhatsApp Group JID (contoh: 120363411096753641@g.us)
+  if (trimmed.endsWith('@g.us')) {
+    return {
+      isValid: true,
+      formattedPhone: trimmed,
+      isGroup: true,
+      error: null
+    };
+  }
+
+  let cleaned = trimmed.replace(/[^0-9+]/g, '');
 
   if (cleaned.startsWith('+')) {
     cleaned = cleaned.substring(1);
@@ -19,17 +31,18 @@ const formatPhoneNumber = (phone) => {
     cleaned = '62' + cleaned;
   }
 
-  if (!/^\d{8,16}$/.test(cleaned)) {
+  if (!/^\d{8,25}$/.test(cleaned)) {
     return {
       isValid: false,
       formattedPhone: null,
-      error: 'Invalid phone number format. Must be between 8 and 16 digits.'
+      error: 'Invalid phone number format. Must be between 8 and 25 digits.'
     };
   }
 
   return {
     isValid: true,
     formattedPhone: cleaned,
+    isGroup: false,
     error: null
   };
 };

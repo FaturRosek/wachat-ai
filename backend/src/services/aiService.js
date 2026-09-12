@@ -6,7 +6,7 @@ class AiService {
     this.geminiApiKey = process.env.GEMINI_API_KEY || '';
     this.openaiApiKey = process.env.OPENAI_API_KEY || '';
     this.provider = process.env.AI_PROVIDER || 'gemini';
-    this.model = process.env.AI_MODEL || (this.provider === 'openai' ? 'gpt-4o-mini' : 'gemini-2.5-flash');
+    this.model = process.env.AI_MODEL || (this.provider === 'openai' ? 'gpt-4o-mini' : 'gemini-3.6-flash');
   }
 
   getSystemInstruction() {
@@ -43,7 +43,7 @@ FORMAT OUTPUT WAJIB JSON MURNI:
     const apiKey = process.env.GEMINI_API_KEY || this.geminiApiKey;
     if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
 
-    const modelName = process.env.AI_MODEL || 'gemini-2.5-flash';
+    const modelName = process.env.AI_MODEL || this.model || 'gemini-3.6-flash';
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
     const contents = [];
@@ -74,7 +74,8 @@ FORMAT OUTPUT WAJIB JSON MURNI:
     }
 
     const rawText = candidates[0].content?.parts?.[0]?.text || '';
-    return jsonMode ? this._cleanJsonString(rawText) : rawText.trim();
+    if (!jsonMode) return rawText.trim();
+    return this._cleanJsonString(rawText);
   }
 
   async _callOpenAIRaw(prompt, systemInstruction = null, jsonMode = true) {
@@ -110,13 +111,22 @@ FORMAT OUTPUT WAJIB JSON MURNI:
   }
 
   _cleanJsonString(str) {
-    let clean = str.trim();
+    let clean = (str || '').trim();
     if (clean.startsWith('```json')) {
       clean = clean.replace(/^```json\s*/i, '').replace(/\s*```$/, '');
     } else if (clean.startsWith('```')) {
       clean = clean.replace(/^```\s*/, '').replace(/\s*```$/, '');
     }
-    return JSON.parse(clean);
+    try {
+      return JSON.parse(clean);
+    } catch (e) {
+      return {
+        reply: clean,
+        summary: clean,
+        rewritten: clean,
+        suggestions: ['Siap, baik kak 👍', 'Terima kasih informasinya.', 'Ada yang bisa dibantu lagi?']
+      };
+    }
   }
 
   async generateSmartReplies(chatHistory = [], lastMessage = '') {
@@ -152,7 +162,6 @@ Format output JSON murni:
       console.warn('[AI Service] Smart replies generation failed:', e.message);
     }
 
-    // Fallback smart replies
     return [
       'Siap, baik kak 👍',
       'Terima kasih infonya, akan segera saya cek.',

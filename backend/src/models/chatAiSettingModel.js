@@ -2,13 +2,23 @@ const { query } = require('../config/database');
 
 const ChatAiSettingModel = {
   async getByJid(userId, jid) {
+    if (!jid) return null;
+    const cleanDigits = String(jid).replace(/[^0-9]/g, '');
+    const standardJid = jid.includes('@') ? jid : `${cleanDigits}@s.whatsapp.net`;
+
     const text = `
       SELECT id, user_id, jid, auto_reply_enabled, custom_prompt, tone, notes, created_at, updated_at
       FROM chat_ai_settings
-      WHERE user_id = $1 AND jid = $2
+      WHERE user_id = $1 AND (
+        jid = $2
+        OR jid = $3
+        OR jid = $4
+        OR (length($4) >= 8 AND jid LIKE $5)
+      )
+      ORDER BY auto_reply_enabled DESC, updated_at DESC
       LIMIT 1
     `;
-    const { rows } = await query(text, [userId, jid]);
+    const { rows } = await query(text, [userId, jid, standardJid, cleanDigits, `%${cleanDigits}%`]);
     return rows[0] || null;
   },
 

@@ -7,7 +7,6 @@ const WhatsappService = require('../services/whatsappService');
 const aiService = require('../services/aiService');
 
 const ChatController = {
-  // Get all active chats (conversations) with search & filter
   async getChats(req, res, next) {
     try {
       const { search = '', filter = 'all' } = req.query;
@@ -22,13 +21,11 @@ const ChatController = {
     }
   },
 
-  // Get messages for a specific chat/jid
   async getChatMessages(req, res, next) {
     try {
       const { jid } = req.params;
       const { limit = 100, offset = 0 } = req.query;
 
-      // Reset unread counter for this chat
       await ContactModel.resetUnread(req.user.id, jid);
 
       const messages = await MessageModel.getByChatJid(
@@ -55,7 +52,6 @@ const ChatController = {
     }
   },
 
-  // Send a real-time message to a chat
   async sendMessage(req, res, next) {
     try {
       const { jid, message, sessionName = 'default' } = req.body;
@@ -83,7 +79,6 @@ const ChatController = {
     }
   },
 
-  // AI: Get 3 Smart Reply Suggestions
   async getSmartSuggestions(req, res, next) {
     try {
       const { jid } = req.body;
@@ -105,7 +100,6 @@ const ChatController = {
     }
   },
 
-  // AI: Summarize conversation
   async summarizeChat(req, res, next) {
     try {
       const { jid } = req.body;
@@ -125,7 +119,6 @@ const ChatController = {
     }
   },
 
-  // AI: Rewrite draft message
   async rewriteMessage(req, res, next) {
     try {
       const { text, tone = 'friendly' } = req.body;
@@ -144,7 +137,6 @@ const ChatController = {
     }
   },
 
-  // Get or Update AI Settings for a specific chat
   async getAiSetting(req, res, next) {
     try {
       const { jid } = req.params;
@@ -203,7 +195,6 @@ const ChatController = {
     }
   },
 
-  // WhatsApp Stories / Status
   async getStories(req, res, next) {
     try {
       const stories = await StoryModel.getRecentStories(req.user.id);
@@ -216,7 +207,6 @@ const ChatController = {
     }
   },
 
-  // Call Logs
   async getCallLogs(req, res, next) {
     try {
       const calls = await CallLogModel.getAllByUser(req.user.id);
@@ -229,7 +219,6 @@ const ChatController = {
     }
   },
 
-  // Manual Sync WhatsApp Groups and Active Chats
   async syncChats(req, res, next) {
     try {
       const result = await WhatsappService.syncGroupsAndChats(req.user.id);

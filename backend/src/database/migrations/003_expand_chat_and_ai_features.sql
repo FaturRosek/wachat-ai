@@ -1,6 +1,3 @@
--- Migration 003: Expand WhatsApp Web chat features, AI settings, stories & call logs
-
--- Enhance messages table
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS remote_jid VARCHAR(255);
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS message_id VARCHAR(255);
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_name VARCHAR(255);
@@ -17,7 +14,6 @@ CREATE INDEX IF NOT EXISTS idx_messages_message_id ON messages(message_id);
 CREATE INDEX IF NOT EXISTS idx_messages_from_me ON messages(from_me);
 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
 
--- Enhance contacts table
 ALTER TABLE contacts ADD COLUMN IF NOT EXISTS jid VARCHAR(255);
 ALTER TABLE contacts ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 ALTER TABLE contacts ADD COLUMN IF NOT EXISTS is_group BOOLEAN DEFAULT false;
@@ -30,7 +26,6 @@ ALTER TABLE contacts ADD COLUMN IF NOT EXISTS about TEXT;
 CREATE INDEX IF NOT EXISTS idx_contacts_jid ON contacts(jid);
 CREATE INDEX IF NOT EXISTS idx_contacts_last_message_time ON contacts(last_message_time DESC NULLS LAST);
 
--- Table for Chat AI Settings (Auto-Reply & Personas per contact/chat)
 CREATE TABLE IF NOT EXISTS chat_ai_settings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -47,7 +42,6 @@ CREATE TABLE IF NOT EXISTS chat_ai_settings (
 CREATE INDEX IF NOT EXISTS idx_chat_ai_settings_user ON chat_ai_settings(user_id);
 CREATE INDEX IF NOT EXISTS idx_chat_ai_settings_jid ON chat_ai_settings(jid);
 
--- Table for WhatsApp Stories / Status
 CREATE TABLE IF NOT EXISTS whatsapp_stories (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -64,7 +58,6 @@ CREATE TABLE IF NOT EXISTS whatsapp_stories (
 CREATE INDEX IF NOT EXISTS idx_whatsapp_stories_user ON whatsapp_stories(user_id);
 CREATE INDEX IF NOT EXISTS idx_whatsapp_stories_time ON whatsapp_stories(story_timestamp DESC);
 
--- Table for Call Logs & AI Auto-Reject alerts
 CREATE TABLE IF NOT EXISTS call_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

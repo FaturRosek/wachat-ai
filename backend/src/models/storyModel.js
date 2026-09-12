@@ -13,7 +13,6 @@ const StoryModel = {
   },
 
   async getRecentStories(userId) {
-    // Return stories within last 24-48 hours grouped by contact
     const text = `
       SELECT id, user_id, sender_jid, sender_name, sender_phone, caption, media_type, media_url, story_timestamp, created_at
       FROM whatsapp_stories

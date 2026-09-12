@@ -593,8 +593,8 @@ class WhatsappService {
     const remoteJid = msg.key?.remoteJid;
     if (!remoteJid) return;
 
-    // Filter out LID and newsletter internal IDs
-    if (remoteJid.includes("@lid") || remoteJid.includes("@newsletter") || remoteJid === "0@s.whatsapp.net") {
+    // Filter out newsletter/broadcast channel updates
+    if (remoteJid.includes("@newsletter") || remoteJid === "0@s.whatsapp.net") {
       return;
     }
 
@@ -719,7 +719,7 @@ class WhatsappService {
         unreadIncrement: !fromMe,
       });
 
-      // 3. Auto-Reply AI Engine
+      // 3. Auto-Reply AI Engine (Runs for incoming 1-on-1 chats)
       if (!fromMe && !isGroup) {
         await this._handleAutoReplyLogic(userId, sessionName, remoteJid, rawPhone, senderName, textContent);
       }
@@ -730,41 +730,43 @@ class WhatsappService {
 
   async _handleAutoReplyLogic(userId, sessionName, remoteJid, senderPhone, senderName, incomingText) {
     try {
-      // Check Admin Dispatch command first
-      const isAdmin = this._isAdminNumber(senderPhone);
-      if (isAdmin && (incomingText.toLowerCase().includes("kirim") || incomingText.toLowerCase().includes("bantuan") || incomingText.toLowerCase().includes("status"))) {
-        const aiResult = await aiService.parseAndGenerate(incomingText);
+      // Check Admin Dispatch command first if admin numbers configured
+      const hasAdminEnv = (process.env.ADMIN_PHONE_NUMBERS || "").trim().length > 0;
+      if (hasAdminEnv && this._isAdminNumber(senderPhone)) {
+        if (incomingText.toLowerCase().includes("kirim") || incomingText.toLowerCase().includes("bantuan") || incomingText.toLowerCase().includes("status")) {
+          const aiResult = await aiService.parseAndGenerate(incomingText);
 
-        if (aiResult.action === "SEND_DISPATCH" && aiResult.targetPhone && Array.isArray(aiResult.messages) && aiResult.messages.length > 0) {
-          const ackMsg = aiResult.replyToAdmin ||
-            `🚀 *Memulai Pengiriman Pesan*\n• Target: ${aiResult.targetPhone}\n• Jumlah: ${aiResult.messages.length} pesan\n• Jeda: ${aiResult.intervalSeconds || 5}s per pesan`;
+          if (aiResult.action === "SEND_DISPATCH" && aiResult.targetPhone && Array.isArray(aiResult.messages) && aiResult.messages.length > 0) {
+            const ackMsg = aiResult.replyToAdmin ||
+              `🚀 *Memulai Pengiriman Pesan*\n• Target: ${aiResult.targetPhone}\n• Jumlah: ${aiResult.messages.length} pesan\n• Jeda: ${aiResult.intervalSeconds || 5}s per pesan`;
 
-          await this.sendDirectMessage(senderPhone, ackMsg, sessionName, userId);
+            await this.sendDirectMessage(senderPhone, ackMsg, sessionName, userId);
 
-          const createdJob = await SendingJobModel.create(userId, {
-            phone: aiResult.targetPhone,
-            message: aiResult.summary || (aiResult.messages[0] || "AI Outbound Dispatch"),
-            repeatCount: aiResult.messages.length,
-            intervalSeconds: aiResult.intervalSeconds || 5,
-          });
+            const createdJob = await SendingJobModel.create(userId, {
+              phone: aiResult.targetPhone,
+              message: aiResult.summary || (aiResult.messages[0] || "AI Outbound Dispatch"),
+              repeatCount: aiResult.messages.length,
+              intervalSeconds: aiResult.intervalSeconds || 5,
+            });
 
-          await enqueueDispatch({
-            jobId: createdJob.id,
-            userId,
-            adminPhone: senderPhone,
-            targetPhone: aiResult.targetPhone,
-            messages: aiResult.messages,
-            intervalSeconds: aiResult.intervalSeconds || 5,
-            sessionName,
-          });
-          return;
+            await enqueueDispatch({
+              jobId: createdJob.id,
+              userId,
+              adminPhone: senderPhone,
+              targetPhone: aiResult.targetPhone,
+              messages: aiResult.messages,
+              intervalSeconds: aiResult.intervalSeconds || 5,
+              sessionName,
+            });
+            return;
+          }
         }
       }
 
       // Check per-contact AI Auto-Reply setting
       const aiSetting = await ChatAiSettingModel.getByJid(userId, remoteJid);
       if (aiSetting && aiSetting.auto_reply_enabled) {
-        console.log(`[WhatsApp - ${userId}] 🤖 Auto-reply triggered for ${remoteJid}`);
+        console.log(`[WhatsApp - ${userId}] 🤖 Auto-reply AI running for ${remoteJid}...`);
         const chatContext = await MessageModel.getRecentChatContext(userId, remoteJid, 8);
         const replyText = await aiService.generateAutoReply(
           aiSetting.custom_prompt,
@@ -774,12 +776,13 @@ class WhatsappService {
         );
 
         if (replyText) {
-          await new Promise((r) => setTimeout(r, 1500)); // Natural typing delay
+          await new Promise((r) => setTimeout(r, 1200)); // Natural typing delay
           await this.sendChatMessage(userId, {
             jid: remoteJid,
             text: replyText,
             sessionName,
           });
+          console.log(`[WhatsApp - ${userId}] ✅ Auto-reply AI sent to ${remoteJid}: "${replyText}"`);
         }
       }
     } catch (aiErr) {
@@ -800,8 +803,9 @@ class WhatsappService {
     }
 
     const isGroup = jid.endsWith("@g.us");
-    const cleanJid = isGroup ? jid : (jid.includes("@") ? jid : `${jid.replace(/[^0-9]/g, "")}@s.whatsapp.net`);
-    const cleanPhone = isGroup ? jid : jid.replace(/[^0-9]/g, "");
+    const isLid = jid.endsWith("@lid");
+    const cleanJid = (isGroup || isLid || jid.includes("@")) ? jid : `${jid.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
+    const cleanPhone = (isGroup || isLid) ? jid : jid.replace(/[^0-9]/g, "");
 
     const contact = await ContactModel.findOrCreate(userId, {
       name: isGroup ? "Grup WhatsApp" : `+${cleanPhone}`,

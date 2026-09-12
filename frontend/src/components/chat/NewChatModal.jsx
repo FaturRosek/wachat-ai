@@ -37,22 +37,23 @@ export default function NewChatModal({ isOpen, onClose, contacts = [], onSelectC
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-fade-in">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200">
-        <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-fade-in">
+      <div className="bg-white dark:bg-[#111b21] rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200 dark:border-[#222d34] transition-colors duration-200">
+        <div className="px-6 py-4 bg-white dark:bg-[#202c33] border-b border-slate-100 dark:border-[#2a3942] text-slate-900 dark:text-white flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <MessageSquare className="w-5 h-5 text-emerald-400" />
-            <h3 className="font-bold text-base">Mulai Obrolan Baru</h3>
+            <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+              <MessageSquare className="w-4 h-4" />
+            </div>
+            <h3 className="font-bold text-base text-slate-900 dark:text-white">Mulai Obrolan Baru</h3>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded-full transition">
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#111b21] rounded-xl transition">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <div className="p-6">
-          {/* Direct Phone Input */}
           <form onSubmit={handleStartWithNumber} className="mb-6">
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider mb-2">
               Kirim Pesan ke Nomor Baru:
             </label>
             <div className="flex gap-2">
@@ -63,22 +64,22 @@ export default function NewChatModal({ isOpen, onClose, contacts = [], onSelectC
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="08123456789 atau 6281xxx"
-                  className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+                  className="w-full pl-10 pr-3 py-2.5 bg-slate-50 dark:bg-[#202c33] border border-slate-200 dark:border-[#2a3942] rounded-xl text-xs font-medium text-slate-800 dark:text-slate-100 focus:bg-white dark:focus:bg-[#111b21] focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                 />
               </div>
               <button
                 type="submit"
-                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm shadow-emerald-600/30"
+                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm shadow-blue-600/30 active:scale-95"
               >
                 <UserPlus className="w-3.5 h-3.5" />
                 Chat
               </button>
             </div>
-            {error && <p className="text-red-500 text-[11px] mt-1.5 font-medium">{error}</p>}
+            {error && <p className="text-rose-500 text-[11px] mt-1.5 font-medium">{error}</p>}
           </form>
 
-          <div className="border-t border-slate-100 pt-4">
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+          <div className="border-t border-slate-100 dark:border-[#222d34] pt-4">
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider mb-2">
               Atau Pilih dari Kontak Tersimpan:
             </label>
             <div className="relative mb-3">
@@ -88,7 +89,7 @@ export default function NewChatModal({ isOpen, onClose, contacts = [], onSelectC
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Cari nama atau nomor..."
-                className="w-full pl-10 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:border-emerald-500"
+                className="w-full pl-10 pr-3 py-2 bg-slate-50 dark:bg-[#202c33] border border-slate-200 dark:border-[#2a3942] rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:bg-white dark:focus:bg-[#111b21] focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
               />
             </div>
 
@@ -105,13 +106,13 @@ export default function NewChatModal({ isOpen, onClose, contacts = [], onSelectC
                       onSelectContact(c);
                       onClose();
                     }}
-                    className="w-full flex items-center gap-3 p-2.5 hover:bg-emerald-50/60 rounded-xl text-left transition group border border-transparent hover:border-emerald-100"
+                    className="w-full flex items-center gap-3 p-2.5 hover:bg-blue-50/70 dark:hover:bg-[#202c33] rounded-xl text-left transition group border border-transparent hover:border-blue-100 dark:hover:border-[#2a3942]"
                   >
-                    <div className="w-9 h-9 rounded-full bg-slate-100 group-hover:bg-emerald-600 group-hover:text-white text-slate-600 flex items-center justify-center font-bold text-xs transition">
+                    <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-[#202c33] group-hover:bg-blue-600 group-hover:text-white text-slate-600 dark:text-slate-300 flex items-center justify-center font-bold text-xs transition">
                       {(c.name || c.phone || 'K').charAt(0).toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-slate-800 truncate group-hover:text-emerald-700">
+                      <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate group-hover:text-blue-700 dark:group-hover:text-blue-400">
                         {c.name || `+${c.phone}`}
                       </p>
                       <p className="text-[11px] text-slate-400 truncate">

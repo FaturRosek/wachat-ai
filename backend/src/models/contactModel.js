@@ -38,15 +38,14 @@ const ContactModel = {
     const cleanPhone = isGrp ? (phone || jid) : (phone ? String(phone).replace(/[^0-9]/g, '') : '');
     const cleanJid = jid || (isGrp ? cleanPhone : `${cleanPhone}@s.whatsapp.net`);
 
-    // Ignore invalid LID or newsletter JIDs
-    if (cleanJid.includes('@lid') || cleanJid.includes('@newsletter') || cleanJid.includes('status@broadcast')) {
+    if (cleanJid.includes('@newsletter') || cleanJid.includes('status@broadcast') || cleanJid === '0@s.whatsapp.net') {
       return null;
     }
 
     const findText = `
       SELECT *
       FROM contacts
-      WHERE user_id = $1 AND (jid = $2 OR phone = $3)
+      WHERE user_id = $1 AND (jid = $2 OR phone = $3 OR (length($3) >= 8 AND phone = $3))
       LIMIT 1
     `;
     const findResult = await query(findText, [userId, cleanJid, cleanPhone]);
@@ -98,18 +97,18 @@ const ContactModel = {
     const isGrp = jid.endsWith('@g.us');
     const cleanPhone = isGrp ? jid : jid.replace(/[^0-9]/g, '');
 
-    const sql = `
+    const updateText = `
       UPDATE contacts
-      SET 
+      SET
         last_message_text = $1,
         last_message_time = $2,
         unread_count = ${unreadSql},
         updated_at = CURRENT_TIMESTAMP
-      WHERE user_id = $3 AND (jid = $4 OR phone = $5)
+      WHERE user_id = $3 AND (jid = $4 OR phone = $5 OR (length($5) >= 8 AND (jid LIKE $6 OR phone LIKE $6)))
       RETURNING *
     `;
-    const res = await query(sql, [text, timestamp, userId, jid, cleanPhone]);
-    return res.rows[0] || null;
+    const { rows } = await query(updateText, [text, timestamp, userId, jid, cleanPhone, `%${cleanPhone}%`]);
+    return rows[0] || null;
   },
 
   async resetUnread(userId, jid) {
@@ -151,7 +150,6 @@ const ContactModel = {
 
     const whereClause = whereConditions.join(' AND ');
 
-    // Prioritize active conversations (with last_message_text or groups)
     const sql = `
       SELECT 
         c.id, c.user_id, c.name, c.phone, c.jid, c.avatar_url, c.is_group, c.about,

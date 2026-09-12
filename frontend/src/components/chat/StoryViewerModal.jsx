@@ -76,7 +76,6 @@ export default function StoryViewerModal({ stories = [], isOpen, onClose }) {
         <X className="w-6 h-6" />
       </button>
 
-      {/* Navigation arrows for desktop */}
       <button
         onClick={handlePrev}
         disabled={currentIndex === 0}
@@ -92,10 +91,7 @@ export default function StoryViewerModal({ stories = [], isOpen, onClose }) {
         <ChevronRight className="w-8 h-8" />
       </button>
 
-      {/* Main Story Container */}
       <div className="w-full max-w-sm h-[85vh] max-h-[720px] bg-gradient-to-b from-slate-900 via-slate-950 to-black rounded-3xl overflow-hidden shadow-2xl flex flex-col relative border border-slate-800">
-        
-        {/* Top Progress Bars */}
         <div className="absolute top-3 left-3 right-3 z-30 flex items-center gap-1.5">
           {stories.map((s, idx) => (
             <div key={idx} className="flex-1 h-1 bg-white/20 rounded-full overflow-hidden">
@@ -109,10 +105,9 @@ export default function StoryViewerModal({ stories = [], isOpen, onClose }) {
           ))}
         </div>
 
-        {/* Story Header (Sender info) */}
         <div className="absolute top-6 left-4 right-4 z-30 flex items-center justify-between text-white drop-shadow-md">
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-white font-bold ring-2 ring-emerald-400">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold ring-2 ring-blue-400">
               {activeStory?.sender_name ? activeStory.sender_name.charAt(0).toUpperCase() : <User className="w-5 h-5" />}
             </div>
             <div>
@@ -127,7 +122,6 @@ export default function StoryViewerModal({ stories = [], isOpen, onClose }) {
           </div>
         </div>
 
-        {/* Story Content Area */}
         <div 
           onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
@@ -144,7 +138,7 @@ export default function StoryViewerModal({ stories = [], isOpen, onClose }) {
               className="max-h-full max-w-full object-contain rounded-xl"
             />
           ) : (
-            <div className="max-w-xs p-6 rounded-2xl bg-gradient-to-br from-emerald-900/60 to-blue-950/80 border border-emerald-500/30 text-white shadow-xl">
+            <div className="max-w-xs p-6 rounded-2xl bg-gradient-to-br from-blue-900/60 to-indigo-950/80 border border-blue-500/30 text-white shadow-xl">
               <p className="text-base sm:text-lg font-medium leading-relaxed">
                 {activeStory?.caption || 'Tidak ada teks status'}
               </p>
@@ -158,7 +152,6 @@ export default function StoryViewerModal({ stories = [], isOpen, onClose }) {
           )}
         </div>
 
-        {/* Reply to Story Input Bar */}
         <div className="p-3 bg-slate-900/90 border-t border-slate-800 z-30">
           <form onSubmit={handleSendReply} className="flex items-center gap-2">
             <input
@@ -166,12 +159,12 @@ export default function StoryViewerModal({ stories = [], isOpen, onClose }) {
               value={replyText}
               onChange={(e) => setReplyText(e.target.value)}
               placeholder="Balas status ini..."
-              className="flex-1 bg-slate-800 border border-slate-700 rounded-full px-4 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500"
+              className="flex-1 bg-slate-800 border border-slate-700 rounded-full px-4 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
             />
             <button
               type="submit"
               disabled={sendingReply || !replyText.trim()}
-              className="w-8 h-8 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white flex items-center justify-center transition disabled:opacity-40"
+              className="w-8 h-8 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center transition disabled:opacity-40"
             >
               <Send className="w-3.5 h-3.5" />
             </button>

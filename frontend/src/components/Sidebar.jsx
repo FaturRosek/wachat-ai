@@ -45,13 +45,13 @@ export default function Sidebar({ activeTab, setActiveTab, isOpen, onClose, waSt
       <div>
         <div className="p-5 sm:p-6 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-md shadow-emerald-500/20">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20">
               <Bot className="w-5 h-5 fill-white/20 text-white" />
             </div>
             <div>
               <div className="flex items-center space-x-1.5">
                 <h1 className="font-bold text-base text-slate-900 tracking-tight">WaChat AI</h1>
-                <span className="px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/80 rounded-full leading-none">
+                <span className="px-1.5 py-0.5 text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200/80 rounded-full leading-none">
                   V2.5
                 </span>
               </div>
@@ -88,19 +88,17 @@ export default function Sidebar({ activeTab, setActiveTab, isOpen, onClose, waSt
                       onClick={() => handleMenuClick(item.id)}
                       className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-[13px] font-medium transition-all ${
                         isActive
-                          ? item.isLiveChat 
-                            ? 'bg-emerald-50 text-emerald-700 font-bold shadow-xs border border-emerald-200/60'
-                            : 'bg-blue-50 text-blue-600 font-semibold shadow-xs'
+                          ? 'bg-blue-50 text-blue-600 font-semibold shadow-xs border border-blue-200/60'
                           : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50/80'
                       }`}
                     >
                       <div className="flex items-center space-x-3">
-                        <Icon className={`w-4 h-4 ${isActive ? (item.isLiveChat ? 'text-emerald-600' : 'text-blue-600') : 'text-slate-400'}`} />
+                        <Icon className={`w-4 h-4 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
                         <span>{item.label}</span>
                       </div>
 
                       {item.isLiveChat && (
-                        <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 animate-pulse">
+                        <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md bg-blue-100 text-blue-700 animate-pulse">
                           Live
                         </span>
                       )}
@@ -132,7 +130,7 @@ export default function Sidebar({ activeTab, setActiveTab, isOpen, onClose, waSt
       <div className="p-4 border-t border-slate-100 bg-white">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3 min-w-0">
-            <div className="w-9 h-9 rounded-full bg-emerald-600 text-white font-bold text-sm flex items-center justify-center shrink-0 shadow-xs">
+            <div className="w-9 h-9 rounded-full bg-blue-600 text-white font-bold text-sm flex items-center justify-center shrink-0 shadow-xs">
               {displayInitial}
             </div>
             <div className="min-w-0">

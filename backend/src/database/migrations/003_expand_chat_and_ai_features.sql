@@ -42,21 +42,7 @@ CREATE TABLE IF NOT EXISTS chat_ai_settings (
 CREATE INDEX IF NOT EXISTS idx_chat_ai_settings_user ON chat_ai_settings(user_id);
 CREATE INDEX IF NOT EXISTS idx_chat_ai_settings_jid ON chat_ai_settings(jid);
 
-CREATE TABLE IF NOT EXISTS whatsapp_stories (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    sender_jid VARCHAR(255) NOT NULL,
-    sender_name VARCHAR(255),
-    sender_phone VARCHAR(50),
-    caption TEXT,
-    media_type VARCHAR(50) DEFAULT 'text',
-    media_url TEXT,
-    story_timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
 
-CREATE INDEX IF NOT EXISTS idx_whatsapp_stories_user ON whatsapp_stories(user_id);
-CREATE INDEX IF NOT EXISTS idx_whatsapp_stories_time ON whatsapp_stories(story_timestamp DESC);
 
 CREATE TABLE IF NOT EXISTS call_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

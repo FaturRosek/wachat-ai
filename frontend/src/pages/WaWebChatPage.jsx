@@ -26,13 +26,11 @@ import {
 } from 'lucide-react';
 import apiClient from '../api/apiClient';
 import { useSocket } from '../context/SocketContext';
-import StoryViewerModal from '../components/chat/StoryViewerModal';
-import IncomingCallModal from '../components/chat/IncomingCallModal';
 import AiChatSettingsDrawer from '../components/chat/AiChatSettingsDrawer';
 import NewChatModal from '../components/chat/NewChatModal';
 
-export default function WaWebChatPage({ waStatus, onOpenStories }) {
-  const { onEvent, incomingCall, setIncomingCall } = useSocket();
+export default function WaWebChatPage({ waStatus }) {
+  const { onEvent } = useSocket();
 
   const [chats, setChats] = useState([]);
   const [activeChat, setActiveChat] = useState(null);
@@ -49,8 +47,6 @@ export default function WaWebChatPage({ waStatus, onOpenStories }) {
   const [activeAiSetting, setActiveAiSetting] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [newChatModalOpen, setNewChatModalOpen] = useState(false);
-  const [storyModalOpen, setStoryModalOpen] = useState(false);
-  const [storiesList, setStoriesList] = useState([]);
   const [rewriting, setRewriting] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
@@ -95,20 +91,8 @@ export default function WaWebChatPage({ waStatus, onOpenStories }) {
     }
   };
 
-  const fetchStories = async () => {
-    try {
-      const res = await apiClient.get('/chats/media/stories');
-      if (res.data.success && Array.isArray(res.data.data)) {
-        setStoriesList(res.data.data);
-      }
-    } catch (e) {
-      console.error('Failed to fetch stories:', e);
-    }
-  };
-
   useEffect(() => {
     fetchChats();
-    fetchStories();
   }, [searchQuery, filterTab]);
 
   useEffect(() => {
@@ -120,9 +104,37 @@ export default function WaWebChatPage({ waStatus, onOpenStories }) {
       fetchChats();
     });
 
+    const unsubChatsUpdated = onEvent('chats_updated', () => {
+      fetchChats();
+    });
+
+    const unsubChatUpdate = onEvent('chat_update', ({ jid, lastMessage, lastMessageTime, unreadIncrement }) => {
+      setChats((prev) => {
+        const idx = prev.findIndex((c) => c.jid === jid || c.phone === jid.replace(/[^0-9]/g, ''));
+        if (idx !== -1) {
+          const updated = [...prev];
+          const inc = unreadIncrement && (!activeChat || (activeChat.jid !== jid && activeChat.phone !== jid.replace(/[^0-9]/g, ''))) ? 1 : 0;
+          updated[idx] = {
+            ...updated[idx],
+            last_message_text: lastMessage,
+            last_message_time: lastMessageTime || new Date(),
+            unread_count: (updated[idx].unread_count || 0) + inc,
+          };
+          const item = updated.splice(idx, 1)[0];
+          return [item, ...updated];
+        }
+        return prev;
+      });
+    });
+
     const unsubMsg = onEvent('message_new', ({ message, contact, remoteJid }) => {
       if (activeChat && (activeChat.jid === remoteJid || activeChat.phone === remoteJid.replace(/[^0-9]/g, ''))) {
-        setMessages((prev) => [...prev, message]);
+        setMessages((prev) => {
+          if (prev.some((m) => (message.id && m.id === message.id) || (message.message_id && m.message_id === message.message_id))) {
+            return prev;
+          }
+          return [...prev, message];
+        });
         scrollToBottom();
       }
 
@@ -167,17 +179,14 @@ export default function WaWebChatPage({ waStatus, onOpenStories }) {
       }));
     });
 
-    const unsubStory = onEvent('story_new', (story) => {
-      setStoriesList((prev) => [story, ...prev]);
-    });
-
     return () => {
       unsubSync();
       unsubChatSync();
+      unsubChatsUpdated();
+      unsubChatUpdate();
       unsubMsg();
       unsubStatus();
       unsubPresence();
-      unsubStory();
     };
   }, [activeChat, onEvent]);
 
@@ -301,12 +310,36 @@ export default function WaWebChatPage({ waStatus, onOpenStories }) {
     const isYesterday = date.toDateString() === yesterday.toDateString();
 
     if (isToday) {
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const hours = String(date.getHours()).padStart(2, '0');
+      const mins = String(date.getMinutes()).padStart(2, '0');
+      return `${hours}.${mins}`;
     }
     if (isYesterday) {
       return 'Kemarin';
     }
-    return date.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: '2-digit' });
+
+    const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
+    if (diffDays < 7) {
+      const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+      return days[date.getDay()];
+    }
+
+    return date.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: '2-digit' });
+  };
+
+  const renderSnippet = (text) => {
+    if (!text) return 'Belum ada pesan';
+    if (text.startsWith('✓✓ ') || text.startsWith('✓ ')) {
+      const isDelivered = text.startsWith('✓✓ ');
+      const clean = text.replace(/^(✓✓ |✓ )/, '');
+      return (
+        <span className="flex items-center gap-1 min-w-0 truncate">
+          <CheckCheck className={`w-3.5 h-3.5 flex-shrink-0 ${isDelivered ? 'text-blue-500' : 'text-slate-400'}`} />
+          <span className="truncate">{clean}</span>
+        </span>
+      );
+    }
+    return <span className="truncate">{text}</span>;
   };
 
   return (
@@ -325,6 +358,7 @@ export default function WaWebChatPage({ waStatus, onOpenStories }) {
           </div>
 
           <div className="flex items-center gap-1">
+
             <button
               onClick={handleSyncAll}
               disabled={syncing}
@@ -415,7 +449,6 @@ export default function WaWebChatPage({ waStatus, onOpenStories }) {
               const isSelected = activeChat?.jid === chat.jid || (activeChat?.phone && activeChat.phone === chat.phone);
               const isTyping = typingMap[chat.jid];
               const hasUnread = (chat.unread_count || 0) > 0;
-
               return (
                 <div
                   key={chat.id || chat.jid || chat.phone}
@@ -427,9 +460,17 @@ export default function WaWebChatPage({ waStatus, onOpenStories }) {
                   }`}
                 >
                   <div className="relative flex-shrink-0">
-                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-500 to-indigo-600 text-white flex items-center justify-center font-bold text-sm overflow-hidden shadow-xs">
+                    <div
+                      className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-sm overflow-hidden shadow-xs ${
+                        chat.name === 'WhatsApp'
+                          ? 'bg-emerald-500 text-white'
+                          : 'bg-gradient-to-tr from-blue-500 to-indigo-600 text-white'
+                      }`}
+                    >
                       {chat.avatar_url ? (
                         <img src={chat.avatar_url} alt={chat.name} className="w-full h-full object-cover" />
+                      ) : chat.name === 'WhatsApp' ? (
+                        <span className="text-xl">💬</span>
                       ) : chat.is_group ? (
                         <Users className="w-5 h-5 text-white" />
                       ) : (
@@ -454,24 +495,24 @@ export default function WaWebChatPage({ waStatus, onOpenStories }) {
                       </h4>
                       <span
                         className={`text-[11px] whitespace-nowrap ml-2 ${
-                          hasUnread ? 'text-blue-600 dark:text-blue-400 font-bold' : 'text-slate-400'
+                          hasUnread ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400'
                         }`}
                       >
                         {formatChatTime(chat.last_message_time)}
                       </span>
                     </div>
 
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate flex items-center gap-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs text-slate-500 dark:text-slate-400 truncate flex-1 min-w-0">
                         {isTyping ? (
                           <span className="text-blue-600 dark:text-blue-400 font-bold animate-pulse">sedang mengetik...</span>
                         ) : (
-                          chat.last_message_text || 'Belum ada pesan'
+                          renderSnippet(chat.last_message_text)
                         )}
-                      </p>
+                      </div>
 
                       {hasUnread && (
-                        <span className="ml-2 flex-shrink-0 bg-blue-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-4 text-center shadow-xs">
+                        <span className="flex-shrink-0 bg-emerald-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-4 text-center shadow-xs">
                           {chat.unread_count}
                         </span>
                       )}
@@ -763,21 +804,78 @@ export default function WaWebChatPage({ waStatus, onOpenStories }) {
           </div>
         </div>
       ) : (
-        <div className="hidden md:flex flex-1 flex-col items-center justify-center p-8 bg-[#f4f7fb] dark:bg-[#0b141a] text-center select-none">
-          <div className="w-20 h-20 rounded-3xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200/80 dark:border-blue-800/60 text-blue-600 dark:text-blue-400 flex items-center justify-center shadow-lg shadow-blue-600/10 mb-4">
-            <Bot className="w-10 h-10" />
+        <div className="hidden md:flex flex-1 flex-col items-center justify-between p-8 bg-[#f4f7fb] dark:bg-[#111b21] text-center select-none">
+          <div className="w-full"></div>
+
+          <div className="flex flex-col items-center max-w-md">
+            <div className="w-24 h-24 rounded-3xl bg-emerald-50 dark:bg-[#202c33] border border-emerald-200/80 dark:border-emerald-800/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shadow-md mb-6 relative">
+              <Phone className="w-12 h-12" />
+              <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs shadow-md">
+                <Bot className="w-4 h-4" />
+              </div>
+            </div>
+
+            <h3 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-2 tracking-tight">
+              Telepon suara dan video kini sudah tersedia
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-6">
+              Kini Anda bisa mengelola obrolan WhatsApp, auto-reply AI pintar, dan pesan terenkripsi secara langsung.
+            </p>
+
+            <button
+              onClick={() => setNewChatModalOpen(true)}
+              className="px-6 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md shadow-emerald-600/30 transition active:scale-95 mb-8"
+            >
+              Mulai Obrolan Baru
+            </button>
+
+            <div className="grid grid-cols-4 gap-4 w-full pt-4 border-t border-slate-200/60 dark:border-[#222d34]">
+              <button
+                onClick={() => setNewChatModalOpen(true)}
+                className="flex flex-col items-center gap-1.5 p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-[#202c33] text-slate-600 dark:text-slate-300 transition"
+              >
+                <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-[#202c33] border border-slate-200 dark:border-[#2a3942] flex items-center justify-center text-slate-600 dark:text-slate-300">
+                  <Paperclip className="w-4 h-4" />
+                </div>
+                <span className="text-[10px] font-medium">Kirim file</span>
+              </button>
+
+              <button
+                onClick={() => setNewChatModalOpen(true)}
+                className="flex flex-col items-center gap-1.5 p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-[#202c33] text-slate-600 dark:text-slate-300 transition"
+              >
+                <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-[#202c33] border border-slate-200 dark:border-[#2a3942] flex items-center justify-center text-slate-600 dark:text-slate-300">
+                  <User className="w-4 h-4" />
+                </div>
+                <span className="text-[10px] font-medium">Tambah kontak</span>
+              </button>
+
+              <button
+                onClick={handleSyncAll}
+                disabled={syncing}
+                className="flex flex-col items-center gap-1.5 p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-[#202c33] text-slate-600 dark:text-slate-300 transition disabled:opacity-50"
+              >
+                <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-[#202c33] border border-slate-200 dark:border-[#2a3942] flex items-center justify-center text-slate-600 dark:text-slate-300">
+                  <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin text-blue-600' : ''}`} />
+                </div>
+                <span className="text-[10px] font-medium">Sinkron chat</span>
+              </button>
+
+              <button
+                onClick={() => setDrawerOpen(true)}
+                className="flex flex-col items-center gap-1.5 p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-[#202c33] text-indigo-600 dark:text-indigo-400 transition"
+              >
+                <div className="w-9 h-9 rounded-full bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800/60 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <span className="text-[10px] font-medium">Pengaturan AI</span>
+              </button>
+            </div>
           </div>
 
-          <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-1">
-            WaChat AI Web Client
-          </h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mb-6 leading-relaxed">
-            Kirim dan terima pesan WhatsApp secara langsung, dilengkapi Otomasi AI, Auto-Reply, dan Rekomendasi Balasan Cerdas.
-          </p>
-
-          <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 bg-white dark:bg-[#202c33] border border-slate-200 dark:border-[#2a3942] px-4 py-2 rounded-full shadow-2xs">
-            <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            <span>Terenkripsi end-to-end dengan Baileys Engine</span>
+          <div className="flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+            <span>Pesan pribadi Anda terenkripsi secara end-to-end</span>
           </div>
         </div>
       )}
@@ -797,17 +895,6 @@ export default function WaWebChatPage({ waStatus, onOpenStories }) {
             )
           );
         }}
-      />
-
-      <StoryViewerModal
-        isOpen={storyModalOpen}
-        onClose={() => setStoryModalOpen(false)}
-        stories={storiesList}
-      />
-
-      <IncomingCallModal
-        call={incomingCall}
-        onClose={() => setIncomingCall(null)}
       />
 
       <NewChatModal

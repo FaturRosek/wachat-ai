@@ -4,7 +4,6 @@ const MessageModel = {
   async create({
     userId,
     contactId = null,
-    jobId = null,
     phone,
     remoteJid = null,
     messageId = null,
@@ -21,10 +20,11 @@ const MessageModel = {
     isStatus = false,
     sentAt = null,
   }) {
-    const cleanPhone = phone ? phone.replace(/[^0-9]/g, '') : '';
-    const cleanJid = remoteJid || (cleanPhone.endsWith('@g.us') ? cleanPhone : `${cleanPhone}@s.whatsapp.net`);
+    const isGrp = (remoteJid && remoteJid.endsWith('@g.us')) || (phone && typeof phone === 'string' && phone.endsWith('@g.us'));
+    const isLid = (remoteJid && remoteJid.endsWith('@lid')) || (phone && typeof phone === 'string' && phone.endsWith('@lid'));
+    const cleanPhone = (isGrp || isLid) ? (phone || remoteJid) : (phone ? String(phone).replace(/[^0-9]/g, '') : (remoteJid ? String(remoteJid).replace(/[^0-9]/g, '') : ''));
+    const cleanJid = remoteJid || (isGrp ? cleanPhone : (isLid ? cleanPhone : `${cleanPhone}@s.whatsapp.net`));
 
-    // Check if messageId already exists for idempotency
     if (messageId) {
       const existCheck = await query(
         'SELECT * FROM messages WHERE user_id = $1 AND message_id = $2 LIMIT 1',
@@ -37,17 +37,18 @@ const MessageModel = {
 
     const text = `
       INSERT INTO messages (
-        user_id, contact_id, job_id, phone, remote_jid, message_id, sender_name,
+        user_id, contact_id, phone, remote_jid, message_id, sender_name,
         content, media_type, media_url, media_caption, quoted_message, raw_data,
         direction, status, from_me, is_status, sent_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+      ON CONFLICT (user_id, message_id) WHERE message_id IS NOT NULL
+      DO UPDATE SET status = EXCLUDED.status
       RETURNING *
     `;
     const values = [
       userId,
       contactId,
-      jobId,
       cleanPhone,
       cleanJid,
       messageId,
@@ -104,29 +105,50 @@ const MessageModel = {
   },
 
   async getByChatJid(userId, jid, limit = 100, offset = 0) {
-    const cleanPhone = jid.replace(/[^0-9]/g, '');
+    const isGrp = jid.endsWith('@g.us');
+    const isLid = jid.endsWith('@lid');
+    const cleanPhone = (isGrp || isLid) ? jid : jid.replace(/[^0-9]/g, '');
+    const standardJid = isGrp ? jid : (isLid ? jid : `${cleanPhone}@s.whatsapp.net`);
+
     const text = `
-      SELECT m.*, ct.name AS contact_name, ct.avatar_url AS contact_avatar
-      FROM messages m
-      LEFT JOIN contacts ct ON m.contact_id = ct.id
-      WHERE m.user_id = $1 AND (m.remote_jid = $2 OR m.phone = $3)
-      ORDER BY m.created_at ASC
-      LIMIT $4 OFFSET $5
+      SELECT * FROM (
+        SELECT m.*, ct.name AS contact_name, ct.avatar_url AS contact_avatar
+        FROM messages m
+        LEFT JOIN contacts ct ON m.contact_id = ct.id
+        WHERE m.user_id = $1 
+          AND (
+            m.remote_jid = $2 
+            OR m.remote_jid = $3 
+            OR m.phone = $4
+          )
+        ORDER BY COALESCE(m.sent_at, m.created_at) DESC
+        LIMIT $5 OFFSET $6
+      ) sub
+      ORDER BY COALESCE(sub.sent_at, sub.created_at) ASC
     `;
-    const { rows } = await query(text, [userId, jid, cleanPhone, limit, offset]);
+    const { rows } = await query(text, [userId, jid, standardJid, cleanPhone, limit, offset]);
     return rows;
   },
 
   async getRecentChatContext(userId, jid, count = 10) {
-    const cleanPhone = jid.replace(/[^0-9]/g, '');
+    const isGrp = jid.endsWith('@g.us');
+    const isLid = jid.endsWith('@lid');
+    const cleanPhone = (isGrp || isLid) ? jid : jid.replace(/[^0-9]/g, '');
+    const standardJid = isGrp ? jid : (isLid ? jid : `${cleanPhone}@s.whatsapp.net`);
+
     const text = `
-      SELECT direction, sender_name, content, created_at, from_me
+      SELECT direction, sender_name, content, COALESCE(sent_at, created_at) AS created_at, from_me
       FROM messages
-      WHERE user_id = $1 AND (remote_jid = $2 OR phone = $3)
-      ORDER BY created_at DESC
-      LIMIT $4
+      WHERE user_id = $1 
+        AND (
+          remote_jid = $2 
+          OR remote_jid = $3 
+          OR phone = $4
+        )
+      ORDER BY COALESCE(sent_at, created_at) DESC
+      LIMIT $5
     `;
-    const { rows } = await query(text, [userId, jid, cleanPhone, count]);
+    const { rows } = await query(text, [userId, jid, standardJid, cleanPhone, count]);
     return rows.reverse();
   },
 
@@ -135,7 +157,7 @@ const MessageModel = {
       SELECT *
       FROM messages
       WHERE user_id = $1 AND contact_id = $2
-      ORDER BY created_at ASC
+      ORDER BY COALESCE(sent_at, created_at) ASC
       LIMIT $3 OFFSET $4
     `;
     const { rows } = await query(text, [userId, contactId, limit, offset]);
@@ -143,16 +165,19 @@ const MessageModel = {
   },
 
   async getByPhone(userId, phone, limit = 50, offset = 0) {
-    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    const isGrp = phone.endsWith('@g.us');
+    const isLid = phone.endsWith('@lid');
+    const cleanPhone = (isGrp || isLid) ? phone : phone.replace(/[^0-9]/g, '');
+    const standardJid = isGrp ? phone : (isLid ? phone : `${cleanPhone}@s.whatsapp.net`);
     const text = `
       SELECT m.*, ct.name AS contact_name
       FROM messages m
       LEFT JOIN contacts ct ON m.contact_id = ct.id
-      WHERE m.user_id = $1 AND m.phone = $2
-      ORDER BY m.created_at ASC
-      LIMIT $3 OFFSET $4
+      WHERE m.user_id = $1 AND (m.phone = $2 OR m.remote_jid = $3)
+      ORDER BY COALESCE(sent_at, created_at) ASC
+      LIMIT $4 OFFSET $5
     `;
-    const { rows } = await query(text, [userId, cleanPhone, limit, offset]);
+    const { rows } = await query(text, [userId, cleanPhone, standardJid, limit, offset]);
     return rows;
   },
 
@@ -172,10 +197,13 @@ const MessageModel = {
     }
 
     if (phone) {
-      const cleanPhone = phone.replace(/[^0-9]/g, '');
-      filterClause += ` AND (m.phone = $${paramIndex} OR m.remote_jid = $${paramIndex})`;
-      params.push(cleanPhone);
-      paramIndex++;
+      const isGrp = phone.endsWith('@g.us');
+      const isLid = phone.endsWith('@lid');
+      const cleanPhone = (isGrp || isLid) ? phone : phone.replace(/[^0-9]/g, '');
+      const standardJid = isGrp ? phone : (isLid ? phone : `${cleanPhone}@s.whatsapp.net`);
+      filterClause += ` AND (m.phone = $${paramIndex} OR m.remote_jid = $${paramIndex} OR m.remote_jid = $${paramIndex + 1})`;
+      params.push(cleanPhone, standardJid);
+      paramIndex += 2;
     }
 
     const text = `
@@ -183,7 +211,7 @@ const MessageModel = {
       FROM messages m
       LEFT JOIN contacts ct ON m.contact_id = ct.id
       ${filterClause}
-      ORDER BY m.created_at DESC
+      ORDER BY COALESCE(m.sent_at, m.created_at) DESC
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
     params.push(limit, offset);

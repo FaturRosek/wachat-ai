@@ -1,8 +1,5 @@
 const { Queue, Worker } = require('bullmq');
 const { redisConfig } = require('../config/redis');
-const SendingJobModel = require('../models/sendingJobModel');
-const MessageModel = require('../models/messageModel');
-const ContactModel = require('../models/contactModel');
 
 const QUEUE_NAME = 'whatsapp-dispatch-queue';
 let dispatchQueue = null;
@@ -34,10 +31,8 @@ try {
 
   dispatchQueue.client.then(() => {
     isRedisActive = true;
-    console.log('[Queue] BullMQ dispatch queue connected to Redis');
-  }).catch((err) => {
+  }).catch(() => {
     isRedisActive = false;
-    console.log(`[Queue Info] Redis not available for BullMQ, using memory async queue fallback: ${err.message}`);
   });
 
   dispatchWorker = new Worker(
@@ -48,16 +43,10 @@ try {
     { connection, concurrency: 2 }
   );
 
-  dispatchWorker.on('completed', (job) => {
-    console.log(`[Queue] Job ${job.id} completed successfully`);
-  });
-
-  dispatchWorker.on('failed', (job, err) => {
-    console.error(`[Queue] Job ${job?.id} failed:`, err.message);
-  });
+  dispatchWorker.on('completed', () => {});
+  dispatchWorker.on('failed', () => {});
 } catch (err) {
   isRedisActive = false;
-  console.log(`[Queue Info] Fallback to in-memory async dispatcher: ${err.message}`);
 }
 
 async function executeDispatchTask(data) {
@@ -72,49 +61,29 @@ async function executeDispatchTask(data) {
   } = data;
 
   const whatsappService = require('../services/whatsappService');
-  console.log(`[Dispatcher] Starting dispatch job ${jobId} -> ${targetPhone} (${messages.length} messages, ${intervalSeconds}s interval)`);
-
-  if (jobId && userId) {
-    await SendingJobModel.updateStatus(jobId, userId, 'PROCESSING', { startedAt: new Date() });
-  }
 
   let successCount = 0;
   let failCount = 0;
 
   for (let i = 0; i < messages.length; i++) {
     const textMsg = messages[i];
-    const itemNum = i + 1;
 
     try {
-      console.log(`[Dispatcher] Sending message ${itemNum}/${messages.length} to ${targetPhone}...`);
-      
       await whatsappService.sendDirectMessage(
         targetPhone,
         textMsg,
         sessionName,
         userId
       );
-
       successCount++;
-
-      if (jobId && userId) {
-        await SendingJobModel.incrementCompletedCount(jobId, userId);
-      }
     } catch (err) {
       failCount++;
-      console.error(`[Dispatcher] Failed sending message ${itemNum} to ${targetPhone}:`, err.message);
     }
 
     if (i < messages.length - 1) {
       const waitMs = Math.max(intervalSeconds, 1) * 1000;
-      console.log(`[Dispatcher] Waiting ${waitMs / 1000}s before next message...`);
       await new Promise((resolve) => setTimeout(resolve, waitMs));
     }
-  }
-
-  if (jobId && userId) {
-    const finalStatus = failCount === 0 ? 'COMPLETED' : (successCount > 0 ? 'PARTIAL' : 'FAILED');
-    await SendingJobModel.updateStatus(jobId, userId, finalStatus, { completedAt: new Date() });
   }
 
   if (adminPhone) {
@@ -127,10 +96,7 @@ async function executeDispatchTask(data) {
 
     try {
       await whatsappService.sendDirectMessage(adminPhone, reportText, sessionName, userId);
-      console.log(`[Dispatcher] Completion report sent to Admin (${adminPhone})`);
-    } catch (adminReportErr) {
-      console.error('[Dispatcher] Failed to send report to admin:', adminReportErr.message);
-    }
+    } catch (adminReportErr) {}
   }
 }
 
@@ -138,18 +104,12 @@ async function enqueueDispatch(data) {
   if (isRedisActive && dispatchQueue) {
     try {
       const job = await dispatchQueue.add('dispatch-job', data);
-      console.log(`[Queue] Enqueued job ${job.id} to BullMQ`);
       return { type: 'BULLMQ', jobId: job.id };
-    } catch (err) {
-      console.warn('[Queue] BullMQ add error, falling back to memory queue:', err.message);
-    }
+    } catch (err) {}
   }
 
-  console.log('[Queue] Running task asynchronously in background...');
   setImmediate(() => {
-    executeDispatchTask(data).catch((err) => {
-      console.error('[Memory Dispatcher Error]:', err.message);
-    });
+    executeDispatchTask(data).catch(() => {});
   });
 
   return { type: 'IN_MEMORY', jobId: data.jobId || 'mem_' + Date.now() };

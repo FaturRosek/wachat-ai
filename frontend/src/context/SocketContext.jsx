@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
+import apiClient from '../api/apiClient';
 
 const SocketContext = createContext(null);
 
@@ -9,7 +10,6 @@ export function SocketProvider({ children }) {
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [incomingCall, setIncomingCall] = useState(null);
-  const [stories, setStories] = useState([]);
   const listenersRef = useRef(new Map());
 
   useEffect(() => {
@@ -50,10 +50,6 @@ export function SocketProvider({ children }) {
       setIncomingCall(callData);
     });
 
-    newSocket.on('story_new', (story) => {
-      setStories((prev) => [story, ...prev]);
-    });
-
     setSocket(newSocket);
 
     return () => {
@@ -80,8 +76,6 @@ export function SocketProvider({ children }) {
         isConnected,
         incomingCall,
         setIncomingCall,
-        stories,
-        setStories,
         onEvent,
         emitEvent,
       }}

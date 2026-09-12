@@ -1,7 +1,6 @@
 const ContactModel = require('../models/contactModel');
 const MessageModel = require('../models/messageModel');
 const ChatAiSettingModel = require('../models/chatAiSettingModel');
-const StoryModel = require('../models/storyModel');
 const CallLogModel = require('../models/callLogModel');
 const WhatsappService = require('../services/whatsappService');
 const aiService = require('../services/aiService');
@@ -189,18 +188,6 @@ const ChatController = {
         success: true,
         message: `Auto-Reply AI ${enabled ? 'Diaktifkan 🤖' : 'Dinonaktifkan'}`,
         data: updated
-      });
-    } catch (error) {
-      next(error);
-    }
-  },
-
-  async getStories(req, res, next) {
-    try {
-      const stories = await StoryModel.getRecentStories(req.user.id);
-      res.status(200).json({
-        success: true,
-        data: stories
       });
     } catch (error) {
       next(error);

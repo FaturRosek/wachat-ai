@@ -5,24 +5,18 @@ import { ThemeProvider, useTheme } from './context/ThemeContext';
 import apiClient from './api/apiClient';
 import NavigationRail from './components/NavigationRail';
 import AuthPage from './pages/AuthPage';
-import DashboardPage from './pages/DashboardPage';
 import WhatsappConnectionPage from './pages/WhatsappConnectionPage';
-import MessageComposerPage from './pages/MessageComposerPage';
-import HistoryPage from './pages/HistoryPage';
-import ContactsPage from './pages/ContactsPage';
-import TemplatesPage from './pages/TemplatesPage';
 import WaWebChatPage from './pages/WaWebChatPage';
-import StoryViewerModal from './components/chat/StoryViewerModal';
+import MessageComposerPage from './pages/MessageComposerPage';
 import IncomingCallModal from './components/chat/IncomingCallModal';
 import { useSocket } from './context/SocketContext';
 
 function DashboardLayout() {
   const { user } = useAuth();
-  const { incomingCall, setIncomingCall, stories, setStories } = useSocket();
+  const { incomingCall, setIncomingCall } = useSocket();
   const [activeTab, setActiveTab] = useState('chat');
   const [waStatus, setWaStatus] = useState(null);
   const [unreadTotal, setUnreadTotal] = useState(0);
-  const [storyModalOpen, setStoryModalOpen] = useState(false);
 
   const fetchWaStatus = async () => {
     try {
@@ -60,35 +54,18 @@ function DashboardLayout() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#f4f7fb] dark:bg-[#0c1317] text-slate-800 dark:text-slate-100 antialiased select-none font-sans transition-colors duration-200">
-      {/* ─── SLIM LEFT VERTICAL NAVIGATION RAIL (WA Web Style) ─── */}
       <NavigationRail
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         waStatus={waStatus}
         unreadCount={unreadTotal}
-        storiesCount={stories.length}
-        onOpenStories={() => setStoryModalOpen(true)}
       />
 
-      {/* ─── MAIN CONTENT AREA ─── */}
       <main className="flex-1 flex min-w-0 h-full overflow-hidden bg-[#f4f7fb] dark:bg-[#0c1317] transition-colors duration-200">
         {activeTab === 'chat' && (
           <WaWebChatPage
             waStatus={waStatus}
-            onOpenStories={() => setStoryModalOpen(true)}
           />
-        )}
-
-        {activeTab === 'dashboard' && (
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 bg-[#f4f7fb] dark:bg-[#0c1317] text-slate-800 dark:text-slate-100 transition-colors duration-200">
-            <DashboardPage setActiveTab={setActiveTab} waStatus={waStatus} />
-          </div>
-        )}
-
-        {activeTab === 'whatsapp' && (
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 bg-[#f4f7fb] dark:bg-[#0c1317] text-slate-800 dark:text-slate-100 transition-colors duration-200">
-            <WhatsappConnectionPage waStatus={waStatus} onRefreshStatus={fetchWaStatus} />
-          </div>
         )}
 
         {activeTab === 'compose' && (
@@ -97,33 +74,13 @@ function DashboardLayout() {
           </div>
         )}
 
-        {activeTab === 'history' && (
+        {activeTab === 'whatsapp' && (
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 bg-[#f4f7fb] dark:bg-[#0c1317] text-slate-800 dark:text-slate-100 transition-colors duration-200">
-            <HistoryPage />
-          </div>
-        )}
-
-        {activeTab === 'contacts' && (
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 bg-[#f4f7fb] dark:bg-[#0c1317] text-slate-800 dark:text-slate-100 transition-colors duration-200">
-            <ContactsPage setActiveTab={setActiveTab} />
-          </div>
-        )}
-
-        {activeTab === 'templates' && (
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 bg-[#f4f7fb] dark:bg-[#0c1317] text-slate-800 dark:text-slate-100 transition-colors duration-200">
-            <TemplatesPage setActiveTab={setActiveTab} />
+            <WhatsappConnectionPage waStatus={waStatus} onRefreshStatus={fetchWaStatus} />
           </div>
         )}
       </main>
 
-      {/* Story Viewer Modal */}
-      <StoryViewerModal
-        isOpen={storyModalOpen}
-        onClose={() => setStoryModalOpen(false)}
-        stories={stories}
-      />
-
-      {/* Incoming WhatsApp Call Modal */}
       <IncomingCallModal
         call={incomingCall}
         onClose={() => setIncomingCall(null)}

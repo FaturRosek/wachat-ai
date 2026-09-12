@@ -6,7 +6,7 @@ class AiService {
     this.geminiApiKey = process.env.GEMINI_API_KEY || '';
     this.openaiApiKey = process.env.OPENAI_API_KEY || '';
     this.provider = process.env.AI_PROVIDER || 'gemini';
-    this.model = process.env.AI_MODEL || (this.provider === 'openai' ? 'gpt-4o-mini' : 'gemini-3.6-flash');
+    this.model = process.env.AI_MODEL || (this.provider === 'openai' ? 'gpt-4o-mini' : 'gemini-3.5-flash');
   }
 
   getSystemInstruction() {
@@ -14,7 +14,7 @@ class AiService {
 Tugas Anda adalah membedah instruksi pesan dari Admin WhatsApp dan menghasilkan format JSON terstruktur untuk dikirimkan ke nomor tujuan.
 
 ATURAN PARSING:
-1. Ekstraksi nomor HP tujuan (misal 0819203344, +62812345, 628xxx). Formatkan menjadi nomor murni dengan awalan 62 (contoh: "62819203344").
+1. Ekstraksi nomor HP tujuan (misal 0819203344, +62812345, 628xxx) atau grup ID (@g.us). Formatkan menjadi nomor murni dengan awalan 62 untuk personal (contoh: "62819203344").
 2. Ekstraksi jumlah pengiriman (count / repetisi). Jika tidak disebutkan jumlahnya, default = 1. Maksimal 20 pesan.
 3. Ekstraksi interval detik antar pesan (intervalSeconds). Jika tidak disebutkan, default = 5 detik.
 4. Buat daftar pesan (array of strings 'messages') sebanyak 'count':
@@ -43,8 +43,16 @@ FORMAT OUTPUT WAJIB JSON MURNI:
     const apiKey = process.env.GEMINI_API_KEY || this.geminiApiKey;
     if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
 
-    const modelName = process.env.AI_MODEL || this.model || 'gemini-3.6-flash';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+    const primaryModel = process.env.AI_MODEL || this.model || 'gemini-3.5-flash';
+    const candidateModels = [
+      primaryModel,
+      'gemini-3.5-flash',
+      'gemini-3.7-flash',
+      'gemini-3.5-flash-lite',
+      'gemini-flash-lite-latest',
+      'gemini-flash-latest'
+    ];
+    const uniqueModels = [...new Set(candidateModels)];
 
     const contents = [];
     if (systemInstruction) {
@@ -63,19 +71,28 @@ FORMAT OUTPUT WAJIB JSON MURNI:
       }
     };
 
-    const response = await axios.post(url, payload, {
-      headers: { 'Content-Type': 'application/json' },
-      timeout: 20000
-    });
+    let lastError = null;
 
-    const candidates = response.data?.candidates;
-    if (!candidates || candidates.length === 0) {
-      throw new Error('No candidate response from Gemini API');
+    for (const modelName of uniqueModels) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+      try {
+        const response = await axios.post(url, payload, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 18000
+        });
+
+        const candidates = response.data?.candidates;
+        if (candidates && candidates.length > 0) {
+          const rawText = candidates[0].content?.parts?.[0]?.text || '';
+          if (!jsonMode) return rawText.trim();
+          return this._cleanJsonString(rawText);
+        }
+      } catch (err) {
+        lastError = err;
+      }
     }
 
-    const rawText = candidates[0].content?.parts?.[0]?.text || '';
-    if (!jsonMode) return rawText.trim();
-    return this._cleanJsonString(rawText);
+    throw lastError || new Error('All Gemini candidate models failed');
   }
 
   async _callOpenAIRaw(prompt, systemInstruction = null, jsonMode = true) {
@@ -124,6 +141,7 @@ FORMAT OUTPUT WAJIB JSON MURNI:
         reply: clean,
         summary: clean,
         rewritten: clean,
+        variations: [clean],
         suggestions: ['Siap, baik kak 👍', 'Terima kasih informasinya.', 'Ada yang bisa dibantu lagi?']
       };
     }
@@ -153,10 +171,10 @@ Format output JSON murni:
     try {
       if (process.env.GEMINI_API_KEY || this.geminiApiKey) {
         const res = await this._callGeminiRaw(prompt, 'Anda adalah AI WhatsApp Assistant.');
-        if (res.suggestions && Array.isArray(res.suggestions)) return res.suggestions.slice(0, 3);
+        if (res.suggestions && Array.isArray(res.suggestions) && res.suggestions.length > 0) return res.suggestions.slice(0, 3);
       } else if (process.env.OPENAI_API_KEY || this.openaiApiKey) {
         const res = await this._callOpenAIRaw(prompt, 'Anda adalah AI WhatsApp Assistant.');
-        if (res.suggestions && Array.isArray(res.suggestions)) return res.suggestions.slice(0, 3);
+        if (res.suggestions && Array.isArray(res.suggestions) && res.suggestions.length > 0) return res.suggestions.slice(0, 3);
       }
     } catch (e) {
       console.warn('[AI Service] Smart replies generation failed:', e.message);
@@ -268,31 +286,58 @@ Format JSON:
     }
 
     const cleanBase = originalText.trim();
-    const prompt = `Anda adalah asisten WhatsApp profesional. Buatkan ${count} variasi pesan chat yang ramah, santun, dan natural dalam bahasa Indonesia berdasarkan pesan dasar: "${cleanBase}".
-Format JSON: { "variations": ["variasi 1", "variasi 2"] }`;
+    const prompt = `Anda adalah asisten WhatsApp profesional. Buatkan tepat ${count} variasi pesan chat yang ramah, santun, unik, dan natural dalam bahasa Indonesia berdasarkan pesan dasar: "${cleanBase}".
+Setiap variasi harus memiliki variasi pilihan kata yang berbeda namun tetap menyampaikan maksud yang sama.
+Format JSON: { "variations": ["variasi 1", "variasi 2", "variasi 3"] }`;
 
     try {
       if (process.env.GEMINI_API_KEY || this.geminiApiKey) {
         const res = await this._callGeminiRaw(prompt);
-        if (res.variations && Array.isArray(res.variations)) return res.variations.slice(0, count);
+        if (res && res.variations && Array.isArray(res.variations) && res.variations.length > 0) {
+          const valid = res.variations.filter(v => typeof v === 'string' && v.trim().length > 0);
+          if (valid.length > 0) {
+            while (valid.length < count) {
+              valid.push(valid[valid.length % valid.length]);
+            }
+            return valid.slice(0, count);
+          }
+        }
       } else if (process.env.OPENAI_API_KEY || this.openaiApiKey) {
         const res = await this._callOpenAIRaw(prompt);
-        if (res.variations && Array.isArray(res.variations)) return res.variations.slice(0, count);
+        if (res && res.variations && Array.isArray(res.variations) && res.variations.length > 0) {
+          const valid = res.variations.filter(v => typeof v === 'string' && v.trim().length > 0);
+          if (valid.length > 0) {
+            while (valid.length < count) {
+              valid.push(valid[valid.length % valid.length]);
+            }
+            return valid.slice(0, count);
+          }
+        }
       }
     } catch (e) {
       console.warn('[AI Service] AI variation failed:', e.message);
     }
 
-    return Array(count).fill(cleanBase);
+    const prefixes = ['Halo, ', 'Hai kak, ', 'Halo! ', 'Hai semuanya, ', 'Halo semuanya, ', 'Halo salam hangat, '];
+    const suffixes = [' ya! 😊', ' ya, terima kasih 🙏', ' ✨', ' 👍', ' ya kak 🙏', '! Semoga lancar selalu.'];
+    const localVariations = [];
+
+    for (let i = 0; i < count; i++) {
+      const p = prefixes[i % prefixes.length];
+      const s = suffixes[i % suffixes.length];
+      localVariations.push(`${p}${cleanBase}${s}`);
+    }
+
+    return localVariations;
   }
 
   async parseAndGenerate(promptText) {
     try {
-      if (process.env.OPENAI_API_KEY || this.openaiApiKey) {
-        return await this._callOpenAIRaw(promptText, this.getSystemInstruction());
-      }
       if (process.env.GEMINI_API_KEY || this.geminiApiKey) {
         return await this._callGeminiRaw(promptText, this.getSystemInstruction());
+      }
+      if (process.env.OPENAI_API_KEY || this.openaiApiKey) {
+        return await this._callOpenAIRaw(promptText, this.getSystemInstruction());
       }
     } catch (e) {
       console.warn('[AI Service] AI parse failed, using fallback rule parser:', e.message);

@@ -159,11 +159,11 @@ export default function WhatsappConnectionPage({ waStatus, onRefreshStatus }) {
   };
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto pb-8">
+    <div className="space-y-6 max-w-6xl mx-auto pb-8 text-slate-800 dark:text-slate-100 transition-colors duration-200">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">Koneksi WhatsApp</h1>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1">
+          <h1 className="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">Koneksi WhatsApp</h1>
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
             Hubungkan nomor WhatsApp untuk Bot Server & AI Auto-Reply menggunakan Kode Pairing atau Scan QR.
           </p>
         </div>
@@ -173,7 +173,7 @@ export default function WhatsappConnectionPage({ waStatus, onRefreshStatus }) {
             <button
               onClick={() => onRefreshStatus()}
               disabled={loading}
-              className="bg-white hover:bg-slate-50 text-slate-700 font-semibold px-4 py-2 rounded-xl text-xs transition flex items-center space-x-1.5 border border-slate-200 shadow-2xs"
+              className="bg-white dark:bg-[#111b21] hover:bg-slate-50 dark:hover:bg-[#202c33] text-slate-700 dark:text-slate-200 font-semibold px-4 py-2 rounded-xl text-xs transition flex items-center space-x-1.5 border border-slate-200 dark:border-[#2a3942] shadow-2xs"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
               <span>Refresh Status</span>
@@ -181,7 +181,7 @@ export default function WhatsappConnectionPage({ waStatus, onRefreshStatus }) {
             <button
               onClick={handleDisconnect}
               disabled={loading}
-              className="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-semibold px-4 py-2 rounded-xl text-xs transition flex items-center space-x-1.5 shadow-2xs"
+              className="bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50 font-semibold px-4 py-2 rounded-xl text-xs transition flex items-center space-x-1.5 shadow-2xs"
             >
               <PowerOff className="w-3.5 h-3.5" />
               <span>Putuskan Koneksi</span>
@@ -191,14 +191,14 @@ export default function WhatsappConnectionPage({ waStatus, onRefreshStatus }) {
       </div>
 
       {errorMsg && (
-        <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-center justify-between text-xs sm:text-sm text-rose-600">
+        <div className="p-4 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-2xl flex items-center justify-between text-xs sm:text-sm text-rose-600 dark:text-rose-300">
           <div className="flex items-center space-x-2.5">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{errorMsg}</span>
           </div>
           <button 
             onClick={() => setErrorMsg('')}
-            className="text-xs hover:underline text-rose-700 font-bold ml-4"
+            className="text-xs hover:underline text-rose-700 dark:text-rose-400 font-bold ml-4"
           >
             Tutup
           </button>
@@ -206,31 +206,31 @@ export default function WhatsappConnectionPage({ waStatus, onRefreshStatus }) {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-        <div className="md:col-span-6 bg-white border border-slate-200 rounded-3xl p-6 sm:p-7 shadow-2xs flex flex-col items-center text-center relative">
+        <div className="md:col-span-6 bg-white dark:bg-[#111b21] border border-slate-200 dark:border-[#222d34] rounded-3xl p-6 sm:p-7 shadow-2xs flex flex-col items-center text-center relative transition-colors duration-200">
           <div className="mb-6">
             {isConnected ? (
-              <div className="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold tracking-wide">
+              <div className="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-400 text-xs font-bold tracking-wide">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 <span>CONNECTED & ACTIVE</span>
               </div>
             ) : isPairingCode ? (
-              <div className="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-bold tracking-wide">
+              <div className="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800/60 text-blue-700 dark:text-blue-400 text-xs font-bold tracking-wide">
                 <Key className="w-3.5 h-3.5" />
                 <span>KODE PAIRING AKTIF</span>
               </div>
             ) : isScan ? (
-              <div className="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold tracking-wide">
+              <div className="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800/60 text-amber-700 dark:text-amber-400 text-xs font-bold tracking-wide">
                 <QrCode className="w-3.5 h-3.5" />
                 <span>SCAN QR CODE</span>
               </div>
             ) : (isConnecting || waitingForResponse) ? (
-              <div className="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-purple-50 border border-purple-200 text-purple-700 text-xs font-bold tracking-wide">
+              <div className="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-purple-50 dark:bg-purple-950/50 border border-purple-200 dark:border-purple-800/60 text-purple-700 dark:text-purple-400 text-xs font-bold tracking-wide">
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                 <span>MENGHUBUNGKAN...</span>
               </div>
             ) : (
-              <div className="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-slate-100 border border-slate-200 text-slate-600 text-xs font-bold tracking-wide">
+              <div className="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-slate-100 dark:bg-[#202c33] border border-slate-200 dark:border-[#2a3942] text-slate-600 dark:text-slate-300 text-xs font-bold tracking-wide">
                 <AlertCircle className="w-3.5 h-3.5" />
                 <span>DISCONNECTED</span>
               </div>
@@ -239,22 +239,22 @@ export default function WhatsappConnectionPage({ waStatus, onRefreshStatus }) {
 
           {isConnected ? (
             <div className="w-full flex flex-col items-center my-auto py-6">
-              <div className="w-20 h-20 rounded-3xl bg-emerald-50 border-2 border-emerald-200 text-emerald-600 flex items-center justify-center mb-4 shadow-sm">
+              <div className="w-20 h-20 rounded-3xl bg-emerald-50 dark:bg-emerald-950/50 border-2 border-emerald-200 dark:border-emerald-800/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-4 shadow-sm">
                 <Smartphone className="w-10 h-10" />
               </div>
-              <h3 className="font-extrabold text-slate-900 text-xl tracking-tight">WhatsApp Terhubung</h3>
-              <div className="inline-flex items-center space-x-2 mt-2 px-4 py-1.5 rounded-full bg-slate-50 border border-slate-200 text-slate-800 font-mono font-bold text-base">
-                <Phone className="w-4 h-4 text-emerald-600" />
+              <h3 className="font-extrabold text-slate-900 dark:text-white text-xl tracking-tight">WhatsApp Terhubung</h3>
+              <div className="inline-flex items-center space-x-2 mt-2 px-4 py-1.5 rounded-full bg-slate-50 dark:bg-[#202c33] border border-slate-200 dark:border-[#2a3942] text-slate-800 dark:text-slate-100 font-mono font-bold text-base">
+                <Phone className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                 <span>+{waStatus?.phoneNumber || '6287728838649'}</span>
               </div>
-              <p className="text-xs text-slate-500 mt-3 max-w-xs leading-relaxed">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-3 max-w-xs leading-relaxed">
                 Nomor WhatsApp siap digunakan untuk menerima perintah AI dan mengirim pesan otomatis.
               </p>
 
               <button
                 onClick={handleDisconnect}
                 disabled={loading}
-                className="mt-6 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-bold px-6 py-2.5 rounded-xl text-xs sm:text-sm transition flex items-center justify-center space-x-2"
+                className="mt-6 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50 font-bold px-6 py-2.5 rounded-xl text-xs sm:text-sm transition flex items-center justify-center space-x-2"
               >
                 <PowerOff className="w-4 h-4" />
                 <span>Putuskan Sesi WhatsApp</span>
@@ -262,7 +262,7 @@ export default function WhatsappConnectionPage({ waStatus, onRefreshStatus }) {
             </div>
           ) : (
             <div className="w-full flex flex-col items-center">
-              <div className="w-full max-w-sm grid grid-cols-2 bg-slate-100 p-1 rounded-2xl border border-slate-200/80 mb-6">
+              <div className="w-full max-w-sm grid grid-cols-2 bg-slate-100 dark:bg-[#202c33] p-1 rounded-2xl border border-slate-200/80 dark:border-[#2a3942] mb-6">
                 <button
                   type="button"
                   onClick={() => {
@@ -271,8 +271,8 @@ export default function WhatsappConnectionPage({ waStatus, onRefreshStatus }) {
                   }}
                   className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 transition ${
                     activeMode === 'code'
-                      ? 'bg-white text-blue-600 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-white dark:bg-[#111b21] text-blue-600 dark:text-blue-400 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                   }`}
                 >
                   <Key className="w-3.5 h-3.5" />
@@ -286,8 +286,8 @@ export default function WhatsappConnectionPage({ waStatus, onRefreshStatus }) {
                   }}
                   className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 transition ${
                     activeMode === 'qr'
-                      ? 'bg-white text-blue-600 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-white dark:bg-[#111b21] text-blue-600 dark:text-blue-400 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                   }`}
                 >
                   <QrCode className="w-3.5 h-3.5" />
@@ -298,44 +298,44 @@ export default function WhatsappConnectionPage({ waStatus, onRefreshStatus }) {
               {activeMode === 'code' && (
                 <div className="w-full flex flex-col items-center space-y-4">
                   {isPairingCode ? (
-                    <div className="w-full bg-slate-50 border border-blue-200 rounded-3xl p-6 flex flex-col items-center shadow-2xs">
-                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    <div className="w-full bg-slate-50 dark:bg-[#202c33] border border-blue-200 dark:border-blue-900/50 rounded-3xl p-6 flex flex-col items-center shadow-2xs">
+                      <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
                         Kode Pairing WhatsApp Anda
                       </span>
                       
-                      <div className="my-2 py-3 px-4 sm:px-6 bg-white border-2 border-dashed border-blue-300 rounded-2xl flex items-center justify-center gap-2 sm:gap-3 w-full max-w-xs sm:max-w-sm shadow-xs">
-                        <span className="text-2xl sm:text-3xl font-black font-mono tracking-widest text-blue-600 select-all">
+                      <div className="my-2 py-3 px-4 sm:px-6 bg-white dark:bg-[#111b21] border-2 border-dashed border-blue-300 dark:border-blue-700 rounded-2xl flex items-center justify-center gap-2 sm:gap-3 w-full max-w-xs sm:max-w-sm shadow-xs">
+                        <span className="text-2xl sm:text-3xl font-black font-mono tracking-widest text-blue-600 dark:text-blue-400 select-all">
                           {waStatus.pairingCode}
                         </span>
                         <button
                           onClick={handleCopyCode}
                           title="Salin Kode"
-                          className="p-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-600 transition shrink-0"
+                          className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-400 transition shrink-0"
                         >
-                          {copied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                          {copied ? <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> : <Copy className="w-4 h-4" />}
                         </button>
                       </div>
 
                       {copied && (
-                        <p className="text-xs text-emerald-600 font-bold mt-1 text-center">
+                        <p className="text-xs text-emerald-600 dark:text-emerald-400 font-bold mt-1 text-center">
                           ✅ Kode berhasil disalin ke clipboard!
                         </p>
                       )}
 
-                      <div className="mt-3 flex items-center space-x-2 text-xs text-slate-700 bg-white px-3 py-1 rounded-full border border-slate-200 font-mono">
-                        <Phone className="w-3 h-3 text-blue-600 shrink-0" />
+                      <div className="mt-3 flex items-center space-x-2 text-xs text-slate-700 dark:text-slate-200 bg-white dark:bg-[#111b21] px-3 py-1 rounded-full border border-slate-200 dark:border-[#2a3942] font-mono">
+                        <Phone className="w-3 h-3 text-blue-600 dark:text-blue-400 shrink-0" />
                         <span>+{waStatus.pairingPhone || pairPhoneInput}</span>
                       </div>
 
-                      <div className="mt-4 flex items-center space-x-2 text-xs text-slate-500 text-center">
-                        <Radio className="w-3.5 h-3.5 text-blue-600 animate-ping shrink-0" />
+                      <div className="mt-4 flex items-center space-x-2 text-xs text-slate-500 dark:text-slate-400 text-center">
+                        <Radio className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 animate-ping shrink-0" />
                         <span>Menunggu konfirmasi dari aplikasi WhatsApp di HP...</span>
                       </div>
 
                       <button
                         onClick={() => handleRequestPairCode()}
                         disabled={loading}
-                        className="mt-5 text-xs text-slate-500 hover:text-slate-800 font-semibold underline transition flex items-center space-x-1"
+                        className="mt-5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 font-semibold underline transition flex items-center space-x-1"
                       >
                         <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
                         <span>Ganti Nomor / Buat Kode Baru</span>
@@ -344,7 +344,7 @@ export default function WhatsappConnectionPage({ waStatus, onRefreshStatus }) {
                   ) : (
                     <form onSubmit={handleRequestPairCode} className="w-full max-w-sm space-y-4 text-left">
                       <div>
-                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider mb-1.5">
                           Nomor WhatsApp Bot / Server *
                         </label>
                         <input
@@ -354,9 +354,9 @@ export default function WhatsappConnectionPage({ waStatus, onRefreshStatus }) {
                           value={pairPhoneInput}
                           onChange={(e) => setPairPhoneInput(e.target.value)}
                           disabled={loading || waitingForResponse}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white font-medium"
+                          className="w-full bg-slate-50 dark:bg-[#202c33] border border-slate-200 dark:border-[#2a3942] rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:bg-white dark:focus:bg-[#111b21] font-medium"
                         />
-                        <p className="text-[11px] text-slate-400 mt-1">
+                        <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
                           Gunakan nomor aktif yang terpasang di HP Anda.
                         </p>
                       </div>
@@ -376,7 +376,7 @@ export default function WhatsappConnectionPage({ waStatus, onRefreshStatus }) {
 
               {activeMode === 'qr' && (
                 <div className="w-full flex flex-col items-center space-y-4">
-                  <div className="w-64 h-64 bg-slate-50 border border-slate-200 rounded-3xl p-4 flex items-center justify-center shadow-inner relative">
+                  <div className="w-64 h-64 bg-slate-50 dark:bg-[#202c33] border border-slate-200 dark:border-[#2a3942] rounded-3xl p-4 flex items-center justify-center shadow-inner relative">
                     {isScan && waStatus?.qrCode ? (
                       <div className="bg-white p-2.5 rounded-2xl shadow-sm">
                         <img 
@@ -386,13 +386,13 @@ export default function WhatsappConnectionPage({ waStatus, onRefreshStatus }) {
                         />
                       </div>
                     ) : (isConnecting || waitingForResponse) ? (
-                      <div className="text-center p-4 text-slate-500">
-                        <RefreshCw className="w-7 h-7 animate-spin mx-auto mb-2 text-blue-600" />
-                        <p className="text-xs font-bold text-slate-700">Menyiapkan QR code WhatsApp...</p>
-                        <p className="text-[11px] text-slate-400 mt-1">Harap tunggu beberapa saat</p>
+                      <div className="text-center p-4 text-slate-500 dark:text-slate-400">
+                        <RefreshCw className="w-7 h-7 animate-spin mx-auto mb-2 text-blue-600 dark:text-blue-400" />
+                        <p className="text-xs font-bold text-slate-700 dark:text-slate-200">Menyiapkan QR code WhatsApp...</p>
+                        <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">Harap tunggu beberapa saat</p>
                       </div>
                     ) : (
-                      <div className="text-center p-4 text-slate-400">
+                      <div className="text-center p-4 text-slate-400 dark:text-slate-500">
                         <QrCode className="w-12 h-12 mx-auto mb-2 opacity-30" />
                         <p className="text-xs">Klik tombol di bawah untuk menampilkan QR Code</p>
                       </div>
@@ -414,53 +414,53 @@ export default function WhatsappConnectionPage({ waStatus, onRefreshStatus }) {
         </div>
 
         <div className="md:col-span-6 space-y-6">
-          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-2xs">
-            <div className="flex items-center space-x-2 text-slate-900 font-bold text-base mb-4">
-              <HelpCircle className="w-5 h-5 text-blue-600" />
+          <div className="bg-white dark:bg-[#111b21] border border-slate-200 dark:border-[#222d34] rounded-3xl p-6 shadow-2xs transition-colors duration-200">
+            <div className="flex items-center space-x-2 text-slate-900 dark:text-white font-bold text-base mb-4">
+              <HelpCircle className="w-5 h-5 text-blue-600 dark:text-blue-400" />
               <h3>
                 {activeMode === 'code' ? 'Panduan Tautkan Kode Pairing' : 'Panduan Tautkan Scan QR'}
               </h3>
             </div>
 
             {activeMode === 'code' ? (
-              <div className="space-y-2.5 text-xs text-slate-600">
-                <div className="flex items-start space-x-3 p-2 bg-slate-50 rounded-xl">
-                  <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold shrink-0 text-[10px]">1</span>
+              <div className="space-y-2.5 text-xs text-slate-600 dark:text-slate-300">
+                <div className="flex items-start space-x-3 p-2 bg-slate-50 dark:bg-[#202c33] border border-slate-100/80 dark:border-[#2a3942] rounded-xl">
+                  <span className="w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold shrink-0 text-[10px]">1</span>
                   <p>Buka aplikasi <strong>WhatsApp</strong> di HP Anda.</p>
                 </div>
-                <div className="flex items-start space-x-3 p-2 bg-slate-50 rounded-xl">
-                  <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold shrink-0 text-[10px]">2</span>
+                <div className="flex items-start space-x-3 p-2 bg-slate-50 dark:bg-[#202c33] border border-slate-100/80 dark:border-[#2a3942] rounded-xl">
+                  <span className="w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold shrink-0 text-[10px]">2</span>
                   <p>Ketuk <strong>Menu (Titik 3)</strong> di Android atau <strong>Pengaturan</strong> di iPhone.</p>
                 </div>
-                <div className="flex items-start space-x-3 p-2 bg-slate-50 rounded-xl">
-                  <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold shrink-0 text-[10px]">3</span>
+                <div className="flex items-start space-x-3 p-2 bg-slate-50 dark:bg-[#202c33] border border-slate-100/80 dark:border-[#2a3942] rounded-xl">
+                  <span className="w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold shrink-0 text-[10px]">3</span>
                   <p>Pilih menu <strong>Perangkat Tertaut (Linked Devices)</strong>.</p>
                 </div>
-                <div className="flex items-start space-x-3 p-2 bg-slate-50 rounded-xl">
-                  <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold shrink-0 text-[10px]">4</span>
+                <div className="flex items-start space-x-3 p-2 bg-slate-50 dark:bg-[#202c33] border border-slate-100/80 dark:border-[#2a3942] rounded-xl">
+                  <span className="w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold shrink-0 text-[10px]">4</span>
                   <p>Ketuk <strong>Tautkan Perangkat (Link a Device)</strong>.</p>
                 </div>
-                <div className="flex items-start space-x-3 p-2 bg-slate-50 rounded-xl">
-                  <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold shrink-0 text-[10px]">5</span>
+                <div className="flex items-start space-x-3 p-2 bg-slate-50 dark:bg-[#202c33] border border-slate-100/80 dark:border-[#2a3942] rounded-xl">
+                  <span className="w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold shrink-0 text-[10px]">5</span>
                   <p>Pilih opsi <strong>"Tautkan dengan nomor telepon saja"</strong> di bagian bawah.</p>
                 </div>
-                <div className="flex items-start space-x-3 p-2 bg-slate-50 rounded-xl">
-                  <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold shrink-0 text-[10px]">6</span>
+                <div className="flex items-start space-x-3 p-2 bg-slate-50 dark:bg-[#202c33] border border-slate-100/80 dark:border-[#2a3942] rounded-xl">
+                  <span className="w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold shrink-0 text-[10px]">6</span>
                   <p>Masukkan 8 karakter kode pairing yang tertera di layar.</p>
                 </div>
               </div>
             ) : (
-              <div className="space-y-2.5 text-xs text-slate-600">
-                <div className="flex items-start space-x-3 p-2 bg-slate-50 rounded-xl">
-                  <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold shrink-0 text-[10px]">1</span>
+              <div className="space-y-2.5 text-xs text-slate-600 dark:text-slate-300">
+                <div className="flex items-start space-x-3 p-2 bg-slate-50 dark:bg-[#202c33] border border-slate-100/80 dark:border-[#2a3942] rounded-xl">
+                  <span className="w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold shrink-0 text-[10px]">1</span>
                   <p>Buka aplikasi <strong>WhatsApp</strong> di HP Anda.</p>
                 </div>
-                <div className="flex items-start space-x-3 p-2 bg-slate-50 rounded-xl">
-                  <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold shrink-0 text-[10px]">2</span>
+                <div className="flex items-start space-x-3 p-2 bg-slate-50 dark:bg-[#202c33] border border-slate-100/80 dark:border-[#2a3942] rounded-xl">
+                  <span className="w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold shrink-0 text-[10px]">2</span>
                   <p>Buka <strong>Menu (Titik 3)</strong> / <strong>Pengaturan</strong> &rarr; <strong>Perangkat Tertaut</strong>.</p>
                 </div>
-                <div className="flex items-start space-x-3 p-2 bg-slate-50 rounded-xl">
-                  <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold shrink-0 text-[10px]">3</span>
+                <div className="flex items-start space-x-3 p-2 bg-slate-50 dark:bg-[#202c33] border border-slate-100/80 dark:border-[#2a3942] rounded-xl">
+                  <span className="w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold shrink-0 text-[10px]">3</span>
                   <p>Ketuk <strong>Tautkan Perangkat</strong> dan arahkan kamera ke QR code di atas.</p>
                 </div>
               </div>

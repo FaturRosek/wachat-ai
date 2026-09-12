@@ -1,17 +1,9 @@
 import React, { useState } from 'react';
 import {
   MessageSquare,
-  CircleDot,
-  Users,
-  LayoutGrid,
   Send,
-  Clock,
-  FileText,
   Smartphone,
   LogOut,
-  Sparkles,
-  Bot,
-  User,
   Sun,
   Moon,
 } from 'lucide-react';
@@ -23,8 +15,6 @@ export default function NavigationRail({
   setActiveTab,
   waStatus,
   unreadCount = 0,
-  storiesCount = 0,
-  onOpenStories,
 }) {
   const { user, logout } = useAuth();
   const { theme, toggleTheme, isDark } = useTheme();
@@ -59,23 +49,9 @@ export default function NavigationRail({
         </button>
 
         <button
-          onClick={() => {
-            setActiveTab('chat');
-            if (onOpenStories) onOpenStories();
-          }}
-          title="Status / Stories"
-          className="w-11 h-11 rounded-2xl flex items-center justify-center text-slate-400 hover:bg-slate-100 dark:hover:bg-[#202c33] hover:text-slate-700 dark:hover:text-slate-200 relative transition"
-        >
-          <CircleDot className="w-5 h-5" />
-          {storiesCount > 0 && (
-            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-[#111b21] animate-pulse"></span>
-          )}
-        </button>
-
-        <button
           onClick={() => setActiveTab('compose')}
-          title="Kirim Blast / Campaign AI"
-          className={`w-11 h-11 rounded-2xl flex items-center justify-center transition ${
+          title="Komposer Pesan Terpisah"
+          className={`w-11 h-11 rounded-2xl flex items-center justify-center relative transition ${
             activeTab === 'compose'
               ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 shadow-xs border border-blue-200/60 dark:border-blue-800/60 font-bold'
               : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-[#202c33] hover:text-slate-700 dark:hover:text-slate-200'
@@ -99,54 +75,6 @@ export default function NavigationRail({
               isConnected ? 'bg-emerald-500' : 'bg-rose-500'
             }`}
           ></span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('dashboard')}
-          title="Statistik & Dashboard"
-          className={`w-11 h-11 rounded-2xl flex items-center justify-center transition ${
-            activeTab === 'dashboard'
-              ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 shadow-xs border border-blue-200/60 dark:border-blue-800/60 font-bold'
-              : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-[#202c33] hover:text-slate-700 dark:hover:text-slate-200'
-          }`}
-        >
-          <LayoutGrid className="w-5 h-5" />
-        </button>
-
-        <button
-          onClick={() => setActiveTab('contacts')}
-          title="Buku Kontak"
-          className={`w-11 h-11 rounded-2xl flex items-center justify-center transition ${
-            activeTab === 'contacts'
-              ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 shadow-xs border border-blue-200/60 dark:border-blue-800/60 font-bold'
-              : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-[#202c33] hover:text-slate-700 dark:hover:text-slate-200'
-          }`}
-        >
-          <Users className="w-5 h-5" />
-        </button>
-
-        <button
-          onClick={() => setActiveTab('templates')}
-          title="Template Pesan"
-          className={`w-11 h-11 rounded-2xl flex items-center justify-center transition ${
-            activeTab === 'templates'
-              ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 shadow-xs border border-blue-200/60 dark:border-blue-800/60 font-bold'
-              : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-[#202c33] hover:text-slate-700 dark:hover:text-slate-200'
-          }`}
-        >
-          <FileText className="w-5 h-5" />
-        </button>
-
-        <button
-          onClick={() => setActiveTab('history')}
-          title="Riwayat Pesan"
-          className={`w-11 h-11 rounded-2xl flex items-center justify-center transition ${
-            activeTab === 'history'
-              ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 shadow-xs border border-blue-200/60 dark:border-blue-800/60 font-bold'
-              : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-[#202c33] hover:text-slate-700 dark:hover:text-slate-200'
-          }`}
-        >
-          <Clock className="w-5 h-5" />
         </button>
       </div>
 

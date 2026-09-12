@@ -2,8 +2,8 @@ const { query } = require('../config/database');
 
 const ContactModel = {
   async create(userId, { name, phone, jid = null, avatarUrl = null, isGroup = false, about = '' }) {
-    const isGrp = isGroup || (jid && jid.endsWith('@g.us')) || (phone && phone.endsWith('@g.us'));
-    const cleanPhone = isGrp ? (phone || jid) : (phone ? phone.replace(/[^0-9]/g, '') : '');
+    const isGrp = isGroup || (jid && jid.endsWith('@g.us')) || (phone && String(phone).endsWith('@g.us'));
+    const cleanPhone = isGrp ? (phone || jid) : (phone ? String(phone).replace(/[^0-9]/g, '') : '');
     const cleanJid = jid || (isGrp ? cleanPhone : `${cleanPhone}@s.whatsapp.net`);
 
     const text = `
@@ -11,7 +11,8 @@ const ContactModel = {
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *
     `;
-    const { rows } = await query(text, [userId, name || cleanPhone || (isGrp ? 'Grup WhatsApp' : 'Kontak WhatsApp'), cleanPhone, cleanJid, avatarUrl, isGrp, about]);
+    const displayName = name || cleanPhone || (isGrp ? 'Grup WhatsApp' : 'Kontak WhatsApp');
+    const { rows } = await query(text, [userId, displayName, cleanPhone, cleanJid, avatarUrl, isGrp, about]);
     return rows[0];
   },
 
@@ -33,6 +34,63 @@ const ContactModel = {
     return rows[0];
   },
 
+  async upsertChat(userId, { jid, name = null, phone = null, avatarUrl = null, isGroup = false, unreadCount = 0, lastMessageText = null, lastMessageTime = null }) {
+    const isGrp = isGroup || (jid && jid.endsWith('@g.us')) || (phone && String(phone).endsWith('@g.us'));
+    const cleanPhone = isGrp ? (phone || jid) : (phone ? String(phone).replace(/[^0-9]/g, '') : (jid ? String(jid).replace(/[^0-9]/g, '') : ''));
+    const cleanJid = jid || (isGrp ? cleanPhone : `${cleanPhone}@s.whatsapp.net`);
+
+    if (cleanJid.includes('@newsletter') || cleanJid.includes('status@broadcast') || cleanJid === '0@s.whatsapp.net') {
+      return null;
+    }
+
+    const existing = await this.findOrCreate(userId, {
+      name,
+      phone: cleanPhone,
+      jid: cleanJid,
+      avatarUrl,
+      isGroup: isGrp
+    });
+
+    if (!existing) return null;
+
+    let updates = [];
+    let vals = [existing.id];
+    let pIdx = 2;
+
+    const isExistingPlaceholder = !existing.name || existing.name === cleanPhone || existing.name === `+${cleanPhone}` || existing.name === 'Kontak' || existing.name === 'Saya' || (isGrp && existing.name === 'Grup WhatsApp');
+    const isIncomingValid = name && name !== cleanPhone && name !== `+${cleanPhone}` && name !== 'Kontak' && name !== 'Saya' && (!isGrp || name !== 'Grup WhatsApp');
+
+    if (isIncomingValid && isExistingPlaceholder) {
+      updates.push(`name = $${pIdx++}`);
+      vals.push(name);
+    }
+    if (avatarUrl && existing.avatar_url !== avatarUrl) {
+      updates.push(`avatar_url = $${pIdx++}`);
+      vals.push(avatarUrl);
+    }
+    if (typeof unreadCount === 'number' && unreadCount > 0) {
+      updates.push(`unread_count = $${pIdx++}`);
+      vals.push(unreadCount);
+    }
+    if (lastMessageText) {
+      updates.push(`last_message_text = $${pIdx++}`);
+      vals.push(lastMessageText);
+    }
+    if (lastMessageTime) {
+      updates.push(`last_message_time = $${pIdx++}`);
+      vals.push(lastMessageTime);
+    }
+
+    if (updates.length > 0) {
+      updates.push(`updated_at = CURRENT_TIMESTAMP`);
+      const updateSql = `UPDATE contacts SET ${updates.join(', ')} WHERE id = $1 RETURNING *`;
+      const res = await query(updateSql, vals);
+      return res.rows[0];
+    }
+
+    return existing;
+  },
+
   async findOrCreate(userId, { name, phone, jid = null, avatarUrl = null, isGroup = false }) {
     const isGrp = isGroup || (jid && jid.endsWith('@g.us')) || (phone && typeof phone === 'string' && phone.endsWith('@g.us'));
     const cleanPhone = isGrp ? (phone || jid) : (phone ? String(phone).replace(/[^0-9]/g, '') : '');
@@ -45,7 +103,7 @@ const ContactModel = {
     const findText = `
       SELECT *
       FROM contacts
-      WHERE user_id = $1 AND (jid = $2 OR phone = $3 OR (length($3) >= 8 AND phone = $3))
+      WHERE user_id = $1 AND (jid = $2 OR phone = $3 OR phone = $2 OR (length($3) >= 8 AND phone = $3))
       LIMIT 1
     `;
     const findResult = await query(findText, [userId, cleanJid, cleanPhone]);
@@ -56,7 +114,10 @@ const ContactModel = {
       let vals = [existing.id];
       let pIdx = 2;
 
-      if (name && name !== cleanPhone && existing.name !== name && name !== 'Kontak') {
+      const isExistingPlaceholder = !existing.name || existing.name === cleanPhone || existing.name === `+${cleanPhone}` || existing.name === 'Kontak' || existing.name === 'Saya' || (isGrp && existing.name === 'Grup WhatsApp');
+      const isIncomingValid = name && name !== cleanPhone && name !== `+${cleanPhone}` && name !== 'Kontak' && name !== 'Saya' && (!isGrp || name !== 'Grup WhatsApp');
+
+      if (isIncomingValid && isExistingPlaceholder) {
         updates.push(`name = $${pIdx++}`);
         vals.push(name);
       }
@@ -104,11 +165,44 @@ const ContactModel = {
         last_message_time = $2,
         unread_count = ${unreadSql},
         updated_at = CURRENT_TIMESTAMP
-      WHERE user_id = $3 AND (jid = $4 OR phone = $5 OR (length($5) >= 8 AND (jid LIKE $6 OR phone LIKE $6)))
+      WHERE user_id = $3 AND (jid = $4 OR phone = $5 OR phone = $4 OR (length($5) >= 8 AND (jid LIKE $6 OR phone LIKE $6)))
       RETURNING *
     `;
     const { rows } = await query(updateText, [text, timestamp, userId, jid, cleanPhone, `%${cleanPhone}%`]);
     return rows[0] || null;
+  },
+
+  async syncLastMessagesFromHistory(userId) {
+    const syncSql = `
+      UPDATE contacts c
+      SET 
+        last_message_text = sub.content,
+        last_message_time = sub.sent_at
+      FROM (
+        SELECT DISTINCT ON (user_id, COALESCE(remote_jid, phone))
+          user_id,
+          COALESCE(remote_jid, phone) AS chat_jid,
+          phone AS msg_phone,
+          CASE 
+            WHEN from_me = true THEN '✓ ' || content
+            WHEN sender_name IS NOT NULL AND sender_name != '' AND sender_name != 'Kontak' AND sender_name != 'Anggota Grup' THEN sender_name || ': ' || content
+            ELSE content
+          END AS content,
+          COALESCE(sent_at, created_at) AS sent_at
+        FROM messages
+        WHERE user_id = $1 AND content IS NOT NULL AND content != ''
+        ORDER BY user_id, COALESCE(remote_jid, phone), COALESCE(sent_at, created_at) DESC
+      ) sub
+      WHERE c.user_id = sub.user_id 
+        AND (
+          c.jid = sub.chat_jid 
+          OR c.phone = sub.chat_jid 
+          OR c.phone = sub.msg_phone
+          OR c.phone = REPLACE(REPLACE(sub.chat_jid, '@s.whatsapp.net', ''), '@g.us', '')
+        )
+        AND (c.last_message_text IS NULL OR c.last_message_time < sub.sent_at)
+    `;
+    await query(syncSql, [userId]);
   },
 
   async resetUnread(userId, jid) {
@@ -117,7 +211,7 @@ const ContactModel = {
     const sql = `
       UPDATE contacts
       SET unread_count = 0, updated_at = CURRENT_TIMESTAMP
-      WHERE user_id = $1 AND (jid = $2 OR phone = $3)
+      WHERE user_id = $1 AND (jid = $2 OR phone = $3 OR phone = $2)
       RETURNING *
     `;
     const res = await query(sql, [userId, jid, cleanPhone]);
@@ -125,11 +219,11 @@ const ContactModel = {
   },
 
   async getChatsList(userId, { search = '', filter = 'all' } = {}) {
+    await this.syncLastMessagesFromHistory(userId);
+
     let whereConditions = [
       'c.user_id = $1',
-      `(c.jid NOT LIKE '%@lid' AND c.phone NOT LIKE '%@lid')`,
-      `c.phone != '0'`,
-      `(c.jid IS NULL OR c.jid != '0@s.whatsapp.net')`
+      `(c.jid NOT LIKE '%@lid' AND c.phone NOT LIKE '%@lid')`
     ];
     let params = [userId];
     let pIdx = 2;
@@ -138,6 +232,8 @@ const ContactModel = {
       whereConditions.push(`(c.name ILIKE $${pIdx} OR c.phone ILIKE $${pIdx} OR c.last_message_text ILIKE $${pIdx})`);
       params.push(`%${search}%`);
       pIdx++;
+    } else {
+      whereConditions.push(`(c.last_message_text IS NOT NULL OR COALESCE(c.unread_count, 0) > 0)`);
     }
 
     if (filter === 'unread') {
@@ -160,8 +256,8 @@ const ContactModel = {
       LEFT JOIN chat_ai_settings ai ON c.user_id = ai.user_id AND (c.jid = ai.jid OR c.phone = ai.jid)
       WHERE ${whereClause}
       ORDER BY 
-        (c.last_message_text IS NOT NULL OR c.is_group = true) DESC,
-        COALESCE(c.last_message_time, c.updated_at) DESC
+        c.last_message_time DESC NULLS LAST,
+        c.updated_at DESC
     `;
 
     const { rows } = await query(sql, params);
@@ -180,7 +276,7 @@ const ContactModel = {
     const text = `
       SELECT *
       FROM contacts
-      WHERE user_id = $1 AND (jid = $2 OR phone = $3)
+      WHERE user_id = $1 AND (jid = $2 OR phone = $3 OR phone = $2)
       LIMIT 1
     `;
     const { rows } = await query(text, [userId, jid, cleanPhone]);

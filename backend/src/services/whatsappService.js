@@ -14,9 +14,7 @@ const WhatsappSessionModel = require("../models/whatsappSessionModel");
 const ContactModel = require("../models/contactModel");
 const MessageModel = require("../models/messageModel");
 const UserModel = require("../models/userModel");
-const SendingJobModel = require("../models/sendingJobModel");
 const ChatAiSettingModel = require("../models/chatAiSettingModel");
-const StoryModel = require("../models/storyModel");
 const CallLogModel = require("../models/callLogModel");
 const aiService = require("./aiService");
 const socketService = require("./socketService");
@@ -45,6 +43,8 @@ async function getWAVersion() {
 class WhatsappService {
   constructor() {
     this.sessions = new Map();
+    this.processedMessageIds = new Map();
+    this.autoReplyLock = new Set();
   }
 
   getSessionKey(userId, sessionName = "default") {
@@ -57,6 +57,37 @@ class WhatsappService {
       fs.mkdirSync(sessionDir, { recursive: true });
     }
     return sessionDir;
+  }
+
+  resolveLidToPhone(userId, sessionName = "default", jid) {
+    if (!jid) return { jid: "", phone: "" };
+    if (!jid.endsWith("@lid")) {
+      const isGroup = jid.endsWith("@g.us");
+      const phone = isGroup ? jid : jid.replace(/[^0-9]/g, "");
+      const cleanJid = isGroup ? jid : `${phone}@s.whatsapp.net`;
+      return { jid: cleanJid, phone };
+    }
+
+    const lidNum = jid.split("@")[0];
+    const sessionDir = this.getSessionDir(userId, sessionName);
+    const revFile = path.join(sessionDir, `lid-mapping-${lidNum}_reverse.json`);
+
+    if (fs.existsSync(revFile)) {
+      try {
+        const phoneRaw = JSON.parse(fs.readFileSync(revFile, "utf8"));
+        if (phoneRaw) {
+          const clean = String(phoneRaw).replace(/[^0-9]/g, "");
+          if (clean) {
+            return {
+              jid: `${clean}@s.whatsapp.net`,
+              phone: clean,
+            };
+          }
+        }
+      } catch (e) {}
+    }
+
+    return { jid, phone: lidNum };
   }
 
   async initSession(userId, sessionName = "default", forceRestart = false, pairingPhone = null) {
@@ -183,12 +214,22 @@ class WhatsappService {
         printQRInTerminal: false,
         browser: Browsers.ubuntu("Chrome"),
         syncFullHistory: true,
+        shouldSyncHistoryMessage: () => true,
+        shouldIgnoreJid: () => false,
         markOnlineOnConnect: true,
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
         keepAliveIntervalMs: 25000,
         generateHighQualityLinkPreview: true,
-        getMessage: async () => ({ conversation: "" }),
+        getMessage: async (key) => {
+          if (key && key.id) {
+            const msg = await MessageModel.getById(key.id, userId);
+            if (msg && msg.content) {
+              return { conversation: msg.content };
+            }
+          }
+          return { conversation: "" };
+        },
       });
     } catch (sockErr) {
       console.error(`[WhatsApp - ${userId}] makeWASocket error:`, sockErr.message);
@@ -234,7 +275,6 @@ class WhatsappService {
             pairingPhone: targetPairPhone,
           });
 
-          console.log(`[WhatsApp - ${userId}] Pairing code generated: ${formattedCode} for +${targetPairPhone}`);
           return formattedCode;
         } catch (pairErr) {
           console.error(`[WhatsApp - ${userId}] requestPairingCode error:`, pairErr.message);
@@ -306,9 +346,6 @@ class WhatsappService {
           phoneNumber: rawPhone,
         });
 
-        console.log(`[WhatsApp - ${userId}] ✅ Connected as: ${rawPhone}`);
-
-        // Automatically sync all participating groups and contacts
         this.syncGroupsAndChats(userId, sessionName).catch((syncErr) => {
           console.warn(`[WhatsApp - ${userId}] Initial groups sync warning:`, syncErr.message);
         });
@@ -438,32 +475,17 @@ class WhatsappService {
       }
     });
 
-    // Handle History Sync (when WhatsApp Web first syncs conversations)
-    sock.ev.on("messaging-history.set", async ({ chats, contacts, messages, isLatest }) => {
+    sock.ev.on("messaging-history.set", async ({ chats, contacts, messages, isLatest, syncType }) => {
       try {
-        console.log(`[WhatsApp - ${userId}] History Sync received: ${chats?.length || 0} chats, ${contacts?.length || 0} contacts, ${messages?.length || 0} messages`);
-
-        // Sync participating groups first
-        await this.syncGroupsAndChats(userId, sessionName).catch(() => {});
-
         if (Array.isArray(contacts)) {
           for (const c of contacts) {
-            const rawId = c.id || "";
-            // Strictly ignore LID and broadcasts
-            if (!rawId || rawId.includes("@lid") || rawId.includes("status@broadcast") || rawId.includes("@newsletter") || rawId === "0@s.whatsapp.net") {
-              continue;
-            }
+            await this._processContactObject(userId, sessionName, c);
+          }
+        }
 
-            const isGroup = rawId.endsWith("@g.us");
-            const cleanPhone = isGroup ? rawId : rawId.replace(/[^0-9]/g, "");
-            const name = c.notify || c.verifiedName || c.name || (isGroup ? "Grup WhatsApp" : `+${cleanPhone}`);
-
-            await ContactModel.findOrCreate(userId, {
-              name,
-              phone: cleanPhone,
-              jid: rawId,
-              isGroup,
-            });
+        if (Array.isArray(chats)) {
+          for (const c of chats) {
+            await this._processChatObject(userId, sessionName, c);
           }
         }
 
@@ -473,20 +495,50 @@ class WhatsappService {
           }
         }
 
-        socketService.emitToUser(userId, "chat_sync_complete", { count: chats?.length || 0 });
+        await this.syncGroupsAndChats(userId, sessionName).catch(() => {});
+        await ContactModel.syncLastMessagesFromHistory(userId);
+
+        socketService.emitToUser(userId, "chat_sync_complete", { count: (chats?.length || 0) + (contacts?.length || 0) });
+        socketService.emitToUser(userId, "chats_updated", {});
       } catch (histErr) {
         console.error(`[WhatsApp - ${userId}] History sync error:`, histErr.message);
       }
     });
 
-    // Handle incoming & outgoing messages
+    sock.ev.on("chats.upsert", async (chats) => {
+      for (const c of chats) {
+        await this._processChatObject(userId, sessionName, c);
+      }
+      await ContactModel.syncLastMessagesFromHistory(userId);
+      socketService.emitToUser(userId, "chats_updated", {});
+    });
+
+    sock.ev.on("chats.update", async (chatUpdates) => {
+      for (const c of chatUpdates) {
+        await this._processChatObject(userId, sessionName, c);
+      }
+      await ContactModel.syncLastMessagesFromHistory(userId);
+      socketService.emitToUser(userId, "chats_updated", {});
+    });
+
+    sock.ev.on("contacts.upsert", async (contacts) => {
+      for (const c of contacts) {
+        await this._processContactObject(userId, sessionName, c);
+      }
+    });
+
+    sock.ev.on("contacts.update", async (contactUpdates) => {
+      for (const c of contactUpdates) {
+        await this._processContactObject(userId, sessionName, c);
+      }
+    });
+
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
       for (const msg of messages) {
         await this._processMessageObject(userId, sessionName, msg);
       }
     });
 
-    // Handle message status updates (ticks: sent, delivered, read)
     sock.ev.on("messages.update", async (updates) => {
       for (const update of updates) {
         const messageId = update.key?.id;
@@ -509,7 +561,6 @@ class WhatsappService {
       }
     });
 
-    // Handle presence updates (online / typing)
     sock.ev.on("presence.update", ({ id, presences }) => {
       socketService.emitToUser(userId, "presence_update", {
         jid: id,
@@ -517,13 +568,11 @@ class WhatsappService {
       });
     });
 
-    // Handle WhatsApp Call Events
     sock.ev.on("call", async (calls) => {
       for (const call of calls) {
         if (call.status === "offer") {
           const callerJid = call.from;
           const callerPhone = callerJid.replace(/[^0-9]/g, "");
-          console.log(`[WhatsApp - ${userId}] 📞 Incoming call from ${callerJid}`);
 
           socketService.emitToUser(userId, "incoming_call", {
             callId: call.id,
@@ -560,7 +609,6 @@ class WhatsappService {
     }
 
     try {
-      console.log(`[WhatsApp - ${userId}] 🔄 Syncing participating WhatsApp groups...`);
       const groupsMap = await session.sock.groupFetchAllParticipating();
       const groupList = Object.values(groupsMap);
 
@@ -578,8 +626,9 @@ class WhatsappService {
         });
       }
 
-      console.log(`[WhatsApp - ${userId}] ✅ Successfully synced ${groupList.length} groups.`);
-      socketService.emitToUser(userId, "groups_synced", { count: groupList.length });
+      await ContactModel.syncLastMessagesFromHistory(userId);
+      socketService.emitToUser(userId, "chat_sync_complete", { count: groupList.length });
+      socketService.emitToUser(userId, "chats_updated", {});
       return { success: true, count: groupList.length };
     } catch (err) {
       console.error(`[WhatsApp - ${userId}] Error syncing groups:`, err.message);
@@ -587,89 +636,218 @@ class WhatsappService {
     }
   }
 
-  async _processMessageObject(userId, sessionName, msg) {
-    if (!msg || !msg.message) return;
+  _unwrapWAMessage(raw) {
+    if (!raw) return null;
+    const msg = raw.message?.message ? raw.message : (raw.message ? raw : null);
+    if (!msg) return null;
 
-    const remoteJid = msg.key?.remoteJid;
-    if (!remoteJid) return;
+    const key = msg.key || raw.key;
+    if (!key || !key.remoteJid) return null;
 
-    // Filter out newsletter/broadcast channel updates
+    let m = msg.message;
+    while (m && (m.ephemeralMessage || m.viewOnceMessage || m.viewOnceMessageV2 || m.viewOnceMessageV2Extension || m.documentWithCaptionMessage || m.deviceSentMessage || m.botInvokeMessage)) {
+      if (m.ephemeralMessage?.message) m = m.ephemeralMessage.message;
+      else if (m.viewOnceMessage?.message) m = m.viewOnceMessage.message;
+      else if (m.viewOnceMessageV2?.message) m = m.viewOnceMessageV2.message;
+      else if (m.viewOnceMessageV2Extension?.message) m = m.viewOnceMessageV2Extension.message;
+      else if (m.documentWithCaptionMessage?.message) m = m.documentWithCaptionMessage.message;
+      else if (m.deviceSentMessage?.message) m = m.deviceSentMessage.message;
+      else if (m.botInvokeMessage?.message) m = m.botInvokeMessage.message;
+    }
+
+    if (m?.editedMessage?.message?.protocolMessage?.editedMessage) {
+      m = m.editedMessage.message.protocolMessage.editedMessage;
+    }
+
+    return {
+      key,
+      remoteJid: key.remoteJid,
+      fromMe: !!key.fromMe,
+      messageId: key.id,
+      participant: key.participant,
+      pushName: msg.pushName || raw.pushName || null,
+      timestamp: msg.messageTimestamp || raw.messageTimestamp || null,
+      proto: m
+    };
+  }
+
+  async _processContactObject(userId, sessionName, c) {
+    if (!c || (!c.id && !c.phone)) return;
+    let rawId = c.id || c.phone || "";
+    if (rawId.includes("status@broadcast") || rawId.includes("@newsletter") || rawId === "0@s.whatsapp.net") {
+      return;
+    }
+
+    let isGroup = rawId.endsWith("@g.us");
+    let cleanPhone = isGroup ? rawId : rawId.replace(/[^0-9]/g, "");
+    let cleanJid = isGroup ? rawId : `${cleanPhone}@s.whatsapp.net`;
+
+    if (rawId.endsWith("@lid")) {
+      const resolved = this.resolveLidToPhone(userId, sessionName, rawId);
+      if (resolved.jid.endsWith("@s.whatsapp.net")) {
+        cleanJid = resolved.jid;
+        cleanPhone = resolved.phone;
+      } else {
+        return;
+      }
+    }
+
+    const name = c.notify || c.verifiedName || c.name || (isGroup ? "Grup WhatsApp" : `+${cleanPhone}`);
+
+    await ContactModel.upsertChat(userId, {
+      jid: cleanJid,
+      name,
+      phone: cleanPhone,
+      isGroup,
+    });
+  }
+
+  async _processChatObject(userId, sessionName, c) {
+    if (!c || !c.id) return;
+    let rawId = c.id;
+    if (rawId.includes("status@broadcast") || rawId.includes("@newsletter") || rawId === "0@s.whatsapp.net") {
+      return;
+    }
+
+    let isGroup = rawId.endsWith("@g.us");
+    let cleanPhone = isGroup ? rawId : rawId.replace(/[^0-9]/g, "");
+    let cleanJid = isGroup ? rawId : `${cleanPhone}@s.whatsapp.net`;
+
+    if (rawId.endsWith("@lid")) {
+      const resolved = this.resolveLidToPhone(userId, sessionName, rawId);
+      if (resolved.jid.endsWith("@s.whatsapp.net")) {
+        cleanJid = resolved.jid;
+        cleanPhone = resolved.phone;
+      } else {
+        return;
+      }
+    }
+
+    const name = c.name || (isGroup ? "Grup WhatsApp" : `+${cleanPhone}`);
+    const unreadCount = typeof c.unreadCount === "number" ? c.unreadCount : 0;
+    const lastMessageTime = c.conversationTimestamp 
+      ? new Date(Number(c.conversationTimestamp) * 1000) 
+      : (c.lastMessageRecvTimestamp ? new Date(Number(c.lastMessageRecvTimestamp) * 1000) : null);
+
+    let lastMessageText = null;
+
+    if (Array.isArray(c.messages) && c.messages.length > 0) {
+      const latestMsg = c.messages[c.messages.length - 1];
+      const parsed = this._unwrapWAMessage(latestMsg);
+      if (parsed && parsed.proto) {
+        const text = parsed.proto.conversation || parsed.proto.extendedTextMessage?.text || (parsed.proto.imageMessage ? "📷 Foto" : (parsed.proto.videoMessage ? "🎥 Video" : null));
+        if (text) {
+          if (parsed.fromMe) {
+            lastMessageText = `✓ ${text}`;
+          } else if (isGroup && parsed.pushName && parsed.pushName !== "Kontak") {
+            lastMessageText = `~ ${parsed.pushName}: ${text}`;
+          } else {
+            lastMessageText = text;
+          }
+        }
+      }
+    }
+
+    await ContactModel.upsertChat(userId, {
+      jid: cleanJid,
+      name,
+      phone: cleanPhone,
+      isGroup,
+      unreadCount,
+      lastMessageText,
+      lastMessageTime,
+    });
+  }
+
+  async _processMessageObject(userId, sessionName, raw) {
+    const parsed = this._unwrapWAMessage(raw);
+    if (!parsed || !parsed.remoteJid) return;
+
+    let { remoteJid, fromMe, messageId, pushName, timestamp, proto, participant } = parsed;
+
     if (remoteJid.includes("@newsletter") || remoteJid === "0@s.whatsapp.net") {
       return;
     }
 
-    const fromMe = !!msg.key?.fromMe;
-    const isStatus = remoteJid.includes("status@broadcast");
-    const isGroup = remoteJid.endsWith("@g.us");
-    const messageId = msg.key?.id;
-    const senderName = msg.pushName || (fromMe ? "Saya" : (isGroup ? "Anggota Grup" : "Kontak"));
-    const rawPhone = isGroup ? remoteJid : remoteJid.replace(/[^0-9]/g, "");
-
-    // 1. Handle Status / Stories
-    if (isStatus) {
-      const participant = msg.key?.participant || remoteJid;
-      const partPhone = participant.replace(/[^0-9]/g, "");
-      let textContent = "";
-      let mediaType = "text";
-
-      if (msg.message.conversation) textContent = msg.message.conversation;
-      else if (msg.message.extendedTextMessage?.text) textContent = msg.message.extendedTextMessage.text;
-      else if (msg.message.imageMessage?.caption) {
-        textContent = msg.message.imageMessage.caption;
-        mediaType = "image";
-      } else if (msg.message.videoMessage?.caption) {
-        textContent = msg.message.videoMessage.caption;
-        mediaType = "video";
+    if (messageId) {
+      const cacheKey = `${userId}_${messageId}`;
+      if (this.processedMessageIds.has(cacheKey)) {
+        return;
       }
+      this.processedMessageIds.set(cacheKey, Date.now());
+      if (this.processedMessageIds.size > 2000) {
+        const now = Date.now();
+        for (const [k, v] of this.processedMessageIds.entries()) {
+          if (now - v > 300000) this.processedMessageIds.delete(k);
+        }
+      }
+    }
 
-      const createdStory = await StoryModel.create({
-        userId,
-        senderJid: participant,
-        senderName: senderName || partPhone,
-        senderPhone: partPhone,
-        caption: textContent,
-        mediaType,
-        storyTimestamp: new Date(Number(msg.messageTimestamp || Date.now() / 1000) * 1000),
-      });
+    if (remoteJid.endsWith("@lid")) {
+      const resolved = this.resolveLidToPhone(userId, sessionName, remoteJid);
+      remoteJid = resolved.jid;
+    }
 
-      socketService.emitToUser(userId, "story_new", createdStory);
+    if (remoteJid.includes("status@broadcast")) {
       return;
     }
 
-    // 2. Extract Message Content & Media Details
+    const isGroup = remoteJid.endsWith("@g.us");
+    const rawPhone = isGroup ? remoteJid : remoteJid.replace(/[^0-9]/g, "");
+    const senderName = pushName || (fromMe ? "Saya" : (isGroup ? "Anggota Grup" : `+${rawPhone}`));
+
     let textContent = "";
     let mediaType = "text";
     let mediaUrl = null;
     let mediaCaption = null;
 
-    if (msg.message.conversation) {
-      textContent = msg.message.conversation;
-    } else if (msg.message.extendedTextMessage) {
-      textContent = msg.message.extendedTextMessage.text || "";
-    } else if (msg.message.imageMessage) {
-      textContent = msg.message.imageMessage.caption || "📷 Foto";
+    if (!proto) return;
+
+    if (proto.conversation) {
+      textContent = proto.conversation;
+    } else if (proto.extendedTextMessage) {
+      textContent = proto.extendedTextMessage.text || "";
+    } else if (proto.imageMessage) {
+      textContent = proto.imageMessage.caption || "📷 Foto";
       mediaType = "image";
-      mediaCaption = msg.message.imageMessage.caption;
-    } else if (msg.message.videoMessage) {
-      textContent = msg.message.videoMessage.caption || "🎥 Video";
+      mediaCaption = proto.imageMessage.caption;
+    } else if (proto.videoMessage) {
+      textContent = proto.videoMessage.caption || "🎥 Video";
       mediaType = "video";
-      mediaCaption = msg.message.videoMessage.caption;
-    } else if (msg.message.audioMessage) {
-      textContent = "🎵 Audio / Voice Note";
-      mediaType = msg.message.audioMessage.ptt ? "voice" : "audio";
-    } else if (msg.message.documentMessage) {
-      textContent = `📄 ${msg.message.documentMessage.fileName || "Dokumen"}`;
+      mediaCaption = proto.videoMessage.caption;
+    } else if (proto.audioMessage) {
+      textContent = proto.audioMessage.ptt ? "🎤 Pesan Suara" : "🎵 Audio";
+      mediaType = proto.audioMessage.ptt ? "voice" : "audio";
+    } else if (proto.documentMessage) {
+      textContent = `📄 ${proto.documentMessage.fileName || proto.documentMessage.caption || "Dokumen"}`;
       mediaType = "document";
-      mediaCaption = msg.message.documentMessage.fileName;
-    } else if (msg.message.stickerMessage) {
+      mediaCaption = proto.documentMessage.fileName || proto.documentMessage.caption;
+    } else if (proto.stickerMessage) {
       textContent = "🎨 Stiker";
       mediaType = "sticker";
+    } else if (proto.contactMessage) {
+      textContent = `👤 ${proto.contactMessage.displayName || "Kontak"}`;
+      mediaType = "contact";
+    } else if (proto.contactsArrayMessage) {
+      textContent = "👥 Kontak";
+      mediaType = "contact";
+    } else if (proto.locationMessage) {
+      textContent = `📍 ${proto.locationMessage.name || "Lokasi"}`;
+      mediaType = "location";
+    } else if (proto.liveLocationMessage) {
+      textContent = "📍 Lokasi Terkini";
+      mediaType = "location";
+    } else if (proto.pollCreationMessage || proto.pollCreationMessageV3) {
+      textContent = `📊 Polling: ${proto.pollCreationMessage?.name || proto.pollCreationMessageV3?.name || "Polling"}`;
+      mediaType = "poll";
+    } else if (proto.groupInviteMessage) {
+      textContent = `✉️ Undangan Grup: ${proto.groupInviteMessage.groupName || "Grup"}`;
+      mediaType = "invite";
     }
 
     if (!textContent && mediaType === "text") return;
 
     try {
-      // Find or create contact / group
       const contact = await ContactModel.findOrCreate(userId, {
         name: isGroup ? "Grup WhatsApp" : (senderName || `+${rawPhone}`),
         phone: rawPhone,
@@ -679,7 +857,6 @@ class WhatsappService {
 
       if (!contact) return;
 
-      // Save message to database
       const savedMessage = await MessageModel.create({
         userId,
         contactId: contact.id,
@@ -694,18 +871,22 @@ class WhatsappService {
         direction: fromMe ? "OUTGOING" : "INCOMING",
         status: fromMe ? "SENT" : "DELIVERED",
         fromMe,
-        sentAt: new Date(Number(msg.messageTimestamp || Date.now() / 1000) * 1000),
+        sentAt: new Date(Number(timestamp || Date.now() / 1000) * 1000),
       });
 
-      // Update contact last message info & unread counter
-      const displaySnippet = isGroup && !fromMe ? `${senderName}: ${textContent}` : textContent;
+      let displaySnippet = textContent;
+      if (fromMe) {
+        displaySnippet = `✓ ${textContent}`;
+      } else if (isGroup && senderName && senderName !== "Kontak" && senderName !== "Anggota Grup") {
+        displaySnippet = `~ ${senderName}: ${textContent}`;
+      }
+
       await ContactModel.updateLastMessage(userId, remoteJid, {
         text: displaySnippet,
         timestamp: savedMessage.sent_at,
         incrementUnread: !fromMe,
       });
 
-      // Broadcast real-time message to frontend via Socket.IO
       socketService.emitToUser(userId, "message_new", {
         message: savedMessage,
         contact,
@@ -719,7 +900,6 @@ class WhatsappService {
         unreadIncrement: !fromMe,
       });
 
-      // 3. Auto-Reply AI Engine (Runs for incoming 1-on-1 chats)
       if (!fromMe && !isGroup) {
         await this._handleAutoReplyLogic(userId, sessionName, remoteJid, rawPhone, senderName, textContent);
       }
@@ -730,60 +910,63 @@ class WhatsappService {
 
   async _handleAutoReplyLogic(userId, sessionName, remoteJid, senderPhone, senderName, incomingText) {
     try {
-      // Check Admin Dispatch command first if admin numbers configured
-      const hasAdminEnv = (process.env.ADMIN_PHONE_NUMBERS || "").trim().length > 0;
-      if (hasAdminEnv && this._isAdminNumber(senderPhone)) {
-        if (incomingText.toLowerCase().includes("kirim") || incomingText.toLowerCase().includes("bantuan") || incomingText.toLowerCase().includes("status")) {
-          const aiResult = await aiService.parseAndGenerate(incomingText);
+      const replyLockKey = `${userId}_${remoteJid}`;
+      if (this.autoReplyLock.has(replyLockKey)) {
+        return;
+      }
+      this.autoReplyLock.add(replyLockKey);
 
-          if (aiResult.action === "SEND_DISPATCH" && aiResult.targetPhone && Array.isArray(aiResult.messages) && aiResult.messages.length > 0) {
-            const ackMsg = aiResult.replyToAdmin ||
-              `🚀 *Memulai Pengiriman Pesan*\n• Target: ${aiResult.targetPhone}\n• Jumlah: ${aiResult.messages.length} pesan\n• Jeda: ${aiResult.intervalSeconds || 5}s per pesan`;
+      try {
+        const hasAdminEnv = (process.env.ADMIN_PHONE_NUMBERS || "").trim().length > 0;
+        if (hasAdminEnv && this._isAdminNumber(senderPhone)) {
+          if (incomingText.toLowerCase().includes("kirim") || incomingText.toLowerCase().includes("bantuan") || incomingText.toLowerCase().includes("status")) {
+            const aiResult = await aiService.parseAndGenerate(incomingText);
 
-            await this.sendDirectMessage(senderPhone, ackMsg, sessionName, userId);
+            if (aiResult.action === "SEND_DISPATCH" && aiResult.targetPhone && Array.isArray(aiResult.messages) && aiResult.messages.length > 0) {
+              const ackMsg = aiResult.replyToAdmin ||
+                `🚀 *Memulai Pengiriman Pesan*\n• Target: ${aiResult.targetPhone}\n• Jumlah: ${aiResult.messages.length} pesan\n• Jeda: ${aiResult.intervalSeconds || 5}s per pesan`;
 
-            const createdJob = await SendingJobModel.create(userId, {
-              phone: aiResult.targetPhone,
-              message: aiResult.summary || (aiResult.messages[0] || "AI Outbound Dispatch"),
-              repeatCount: aiResult.messages.length,
-              intervalSeconds: aiResult.intervalSeconds || 5,
-            });
+              await this.sendDirectMessage(senderPhone, ackMsg, sessionName, userId);
 
-            await enqueueDispatch({
-              jobId: createdJob.id,
-              userId,
-              adminPhone: senderPhone,
-              targetPhone: aiResult.targetPhone,
-              messages: aiResult.messages,
-              intervalSeconds: aiResult.intervalSeconds || 5,
-              sessionName,
-            });
-            return;
+              const dispatchJobId = 'job_' + Date.now();
+
+              await enqueueDispatch({
+                jobId: dispatchJobId,
+                userId,
+                adminPhone: senderPhone,
+                targetPhone: aiResult.targetPhone,
+                messages: aiResult.messages,
+                intervalSeconds: aiResult.intervalSeconds || 5,
+                sessionName,
+              });
+              return;
+            }
           }
         }
-      }
 
-      // Check per-contact AI Auto-Reply setting
-      const aiSetting = await ChatAiSettingModel.getByJid(userId, remoteJid);
-      if (aiSetting && aiSetting.auto_reply_enabled) {
-        console.log(`[WhatsApp - ${userId}] 🤖 Auto-reply AI running for ${remoteJid}...`);
-        const chatContext = await MessageModel.getRecentChatContext(userId, remoteJid, 8);
-        const replyText = await aiService.generateAutoReply(
-          aiSetting.custom_prompt,
-          chatContext,
-          incomingText,
-          senderName || senderPhone
-        );
+        const aiSetting = await ChatAiSettingModel.getByJid(userId, remoteJid);
+        if (aiSetting && aiSetting.auto_reply_enabled) {
+          const chatContext = await MessageModel.getRecentChatContext(userId, remoteJid, 8);
+          const replyText = await aiService.generateAutoReply(
+            aiSetting.custom_prompt,
+            chatContext,
+            incomingText,
+            senderName || senderPhone
+          );
 
-        if (replyText) {
-          await new Promise((r) => setTimeout(r, 1200)); // Natural typing delay
-          await this.sendChatMessage(userId, {
-            jid: remoteJid,
-            text: replyText,
-            sessionName,
-          });
-          console.log(`[WhatsApp - ${userId}] ✅ Auto-reply AI sent to ${remoteJid}: "${replyText}"`);
+          if (replyText) {
+            await new Promise((r) => setTimeout(r, 1200));
+            await this.sendChatMessage(userId, {
+              jid: remoteJid,
+              text: replyText,
+              sessionName,
+            });
+          }
         }
+      } finally {
+        setTimeout(() => {
+          this.autoReplyLock.delete(replyLockKey);
+        }, 4000);
       }
     } catch (aiErr) {
       console.error(`[WhatsApp - ${userId}] Auto-reply error:`, aiErr.message);
@@ -803,9 +986,16 @@ class WhatsappService {
     }
 
     const isGroup = jid.endsWith("@g.us");
-    const isLid = jid.endsWith("@lid");
-    const cleanJid = (isGroup || isLid || jid.includes("@")) ? jid : `${jid.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
-    const cleanPhone = (isGroup || isLid) ? jid : jid.replace(/[^0-9]/g, "");
+    let cleanJid = jid;
+    let cleanPhone = isGroup ? jid : jid.replace(/[^0-9]/g, "");
+
+    if (jid.endsWith("@lid")) {
+      const resolved = this.resolveLidToPhone(userId, sessionName, jid);
+      cleanJid = resolved.jid;
+      cleanPhone = resolved.phone;
+    } else if (!isGroup && !jid.includes("@")) {
+      cleanJid = `${cleanPhone}@s.whatsapp.net`;
+    }
 
     const contact = await ContactModel.findOrCreate(userId, {
       name: isGroup ? "Grup WhatsApp" : `+${cleanPhone}`,

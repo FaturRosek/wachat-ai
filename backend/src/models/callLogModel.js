@@ -22,6 +22,12 @@ const CallLogModel = {
     `;
     const { rows } = await query(text, [userId, limit]);
     return rows;
+  },
+
+  async deleteAllByUser(userId) {
+    const text = `DELETE FROM call_logs WHERE user_id = $1`;
+    const { rowCount } = await query(text, [userId]);
+    return rowCount;
   }
 };
 

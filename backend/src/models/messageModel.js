@@ -218,6 +218,12 @@ const MessageModel = {
 
     const { rows } = await query(text, params);
     return rows;
+  },
+
+  async deleteAllByUser(userId) {
+    const text = `DELETE FROM messages WHERE user_id = $1`;
+    const { rowCount } = await query(text, [userId]);
+    return rowCount;
   }
 };
 

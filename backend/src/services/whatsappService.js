@@ -1206,6 +1206,19 @@ class WhatsappService {
       this.sessions.delete(key);
     }
 
+    // 1. Clear in-memory caches for this user
+    for (const cacheKey of this.processedMessageIds.keys()) {
+      if (cacheKey.startsWith(`${userId}_`)) {
+        this.processedMessageIds.delete(cacheKey);
+      }
+    }
+    for (const lockKey of this.autoReplyLock.keys()) {
+      if (lockKey.startsWith(`${userId}_`)) {
+        this.autoReplyLock.delete(lockKey);
+      }
+    }
+
+    // 2. Delete physical auth session files on disk
     const sessionDir = path.join(SESSIONS_BASE_DIR, `${userId}_${sessionName}`);
     try {
       if (fs.existsSync(sessionDir)) {
@@ -1215,6 +1228,7 @@ class WhatsappService {
       console.error(`[WhatsApp - ${userId}] Error removing session dir:`, delErr.message);
     }
 
+    // 3. Reset WhatsApp session in database
     try {
       await WhatsappSessionModel.updateStatus(userId, "DISCONNECTED", {
         phoneNumber: null,
@@ -1226,13 +1240,30 @@ class WhatsappService {
       console.error(`[WhatsApp - ${userId}] Error updating session status to DISCONNECTED:`, dbErr.message);
     }
 
+    // 4. Wipe all synchronized chat & message data from database for complete privacy & reset
+    try {
+      await MessageModel.deleteAllByUser(userId);
+      await ContactModel.deleteAllByUser(userId);
+      await CallLogModel.deleteAllByUser(userId);
+      await ChatAiSettingModel.deleteAllByUser(userId);
+      console.log(`[WhatsApp - ${userId}] All user chats, contacts, messages, and call logs wiped on disconnect.`);
+    } catch (wipeErr) {
+      console.error(`[WhatsApp - ${userId}] Error wiping user chat data on disconnect:`, wipeErr.message);
+    }
+
+    // 5. Emit real-time reset events to frontend
     socketService.emitToUser(userId, "wa_status", {
       status: "DISCONNECTED",
+      phoneNumber: null,
+      pairingCode: null,
+      qrCode: null,
     });
+    socketService.emitToUser(userId, "chats_updated", { reset: true });
+    socketService.emitToUser(userId, "chat_reset", {});
 
     return {
       status: "DISCONNECTED",
-      message: "WhatsApp session disconnected and logged out.",
+      message: "Koneksi WhatsApp diputus dan seluruh data chat, kontak & pesan telah di-reset bersih.",
     };
   }
 

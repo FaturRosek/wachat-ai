@@ -2,12 +2,27 @@ const ContactModel = require('../models/contactModel');
 const MessageModel = require('../models/messageModel');
 const ChatAiSettingModel = require('../models/chatAiSettingModel');
 const CallLogModel = require('../models/callLogModel');
+const WhatsappSessionModel = require('../models/whatsappSessionModel');
 const WhatsappService = require('../services/whatsappService');
 const aiService = require('../services/aiService');
 
 const ChatController = {
   async getChats(req, res, next) {
     try {
+      const session = await WhatsappSessionModel.getByUserId(req.user.id);
+      if (!session || session.status !== 'CONNECTED') {
+        // Automatically purge leftover data if disconnected
+        await MessageModel.deleteAllByUser(req.user.id);
+        await ContactModel.deleteAllByUser(req.user.id);
+        await CallLogModel.deleteAllByUser(req.user.id);
+        await ChatAiSettingModel.deleteAllByUser(req.user.id);
+
+        return res.status(200).json({
+          success: true,
+          data: []
+        });
+      }
+
       const { search = '', filter = 'all' } = req.query;
       const chats = await ContactModel.getChatsList(req.user.id, { search, filter });
       
@@ -24,6 +39,19 @@ const ChatController = {
     try {
       const { jid } = req.params;
       const { limit = 100, offset = 0 } = req.query;
+
+      const session = await WhatsappSessionModel.getByUserId(req.user.id);
+      if (!session || session.status !== 'CONNECTED') {
+        return res.status(200).json({
+          success: true,
+          data: {
+            jid,
+            contact: null,
+            aiSetting: null,
+            messages: []
+          }
+        });
+      }
 
       await ContactModel.resetUnread(req.user.id, jid);
 
@@ -200,6 +228,14 @@ const ChatController = {
 
   async getCallLogs(req, res, next) {
     try {
+      const session = await WhatsappSessionModel.getByUserId(req.user.id);
+      if (!session || session.status !== 'CONNECTED') {
+        return res.status(200).json({
+          success: true,
+          data: []
+        });
+      }
+
       const calls = await CallLogModel.getAllByUser(req.user.id);
       res.status(200).json({
         success: true,
@@ -212,6 +248,14 @@ const ChatController = {
 
   async syncChats(req, res, next) {
     try {
+      const session = await WhatsappSessionModel.getByUserId(req.user.id);
+      if (!session || session.status !== 'CONNECTED') {
+        return res.status(400).json({
+          success: false,
+          message: 'WhatsApp belum terhubung. Silakan hubungkan WhatsApp terlebih dahulu.'
+        });
+      }
+
       const result = await WhatsappService.syncGroupsAndChats(req.user.id);
       const updatedChats = await ContactModel.getChatsList(req.user.id);
       res.status(200).json({

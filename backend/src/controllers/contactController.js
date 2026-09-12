@@ -1,8 +1,21 @@
 const ContactService = require('../services/contactService');
+const WhatsappSessionModel = require('../models/whatsappSessionModel');
 
 const ContactController = {
   async getContacts(req, res, next) {
     try {
+      const session = await WhatsappSessionModel.getByUserId(req.user.id);
+      if (!session || session.status !== 'CONNECTED') {
+        return res.status(200).json({
+          success: true,
+          data: {
+            contacts: [],
+            total: 0,
+            count: 0
+          }
+        });
+      }
+
       const { search, limit = 50, offset = 0 } = req.query;
       const { rows, total } = await ContactService.getContacts(req.user.id, {
         search,

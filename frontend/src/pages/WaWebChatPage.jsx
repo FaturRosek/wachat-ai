@@ -68,21 +68,35 @@ export default function WaWebChatPage({ waStatus }) {
   };
 
   const fetchChats = async () => {
+    if (waStatus && waStatus.status !== 'CONNECTED') {
+      setChats([]);
+      setActiveChat(null);
+      setMessages([]);
+      setLoadingChats(false);
+      return;
+    }
     try {
       const res = await apiClient.get('/chats', {
         params: { search: searchQuery, filter: filterTab },
       });
       if (res.data.success && Array.isArray(res.data.data)) {
         setChats(res.data.data);
+      } else {
+        setChats([]);
       }
     } catch (err) {
       console.error('Failed to fetch chats:', err);
+      setChats([]);
     } finally {
       setLoadingChats(false);
     }
   };
 
   const handleSyncAll = async () => {
+    if (waStatus && waStatus.status !== 'CONNECTED') {
+      alert('WhatsApp belum terhubung. Silakan hubungkan WhatsApp terlebih dahulu.');
+      return;
+    }
     setSyncing(true);
     try {
       const res = await apiClient.post('/chats/sync');
@@ -100,8 +114,17 @@ export default function WaWebChatPage({ waStatus }) {
   };
 
   useEffect(() => {
-    fetchChats();
-  }, [searchQuery, filterTab]);
+    if (waStatus && waStatus.status !== 'CONNECTED') {
+      setChats([]);
+      setActiveChat(null);
+      setMessages([]);
+      setAiSuggestions([]);
+      setActiveAiSetting(null);
+      setLoadingChats(false);
+    } else {
+      fetchChats();
+    }
+  }, [searchQuery, filterTab, waStatus?.status]);
 
   useEffect(() => {
     const unsubSync = onEvent('groups_synced', () => {
@@ -112,8 +135,34 @@ export default function WaWebChatPage({ waStatus }) {
       fetchChats();
     });
 
-    const unsubChatsUpdated = onEvent('chats_updated', () => {
-      fetchChats();
+    const unsubChatsUpdated = onEvent('chats_updated', (data) => {
+      if (data?.reset) {
+        setChats([]);
+        setActiveChat(null);
+        setMessages([]);
+        setAiSuggestions([]);
+        setActiveAiSetting(null);
+      } else {
+        fetchChats();
+      }
+    });
+
+    const unsubChatReset = onEvent('chat_reset', () => {
+      setChats([]);
+      setActiveChat(null);
+      setMessages([]);
+      setAiSuggestions([]);
+      setActiveAiSetting(null);
+    });
+
+    const unsubWaStatus = onEvent('wa_status', (statusData) => {
+      if (statusData?.status === 'DISCONNECTED') {
+        setChats([]);
+        setActiveChat(null);
+        setMessages([]);
+        setAiSuggestions([]);
+        setActiveAiSetting(null);
+      }
     });
 
     const unsubChatUpdate = onEvent('chat_update', ({ jid, lastMessage, lastMessageTime, unreadIncrement }) => {
@@ -254,6 +303,8 @@ export default function WaWebChatPage({ waStatus }) {
       unsubSync();
       unsubChatSync();
       unsubChatsUpdated();
+      unsubChatReset();
+      unsubWaStatus();
       unsubChatUpdate();
       unsubMsg();
       unsubStatus();

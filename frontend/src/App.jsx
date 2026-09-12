@@ -30,11 +30,17 @@ function DashboardLayout() {
   };
 
   const fetchUnreadTotal = async () => {
+    if (waStatus && waStatus.status !== 'CONNECTED') {
+      setUnreadTotal(0);
+      return;
+    }
     try {
       const res = await apiClient.get('/chats?filter=unread');
       if (res.data.success && Array.isArray(res.data.data)) {
         const sum = res.data.data.reduce((acc, c) => acc + (c.unread_count || 1), 0);
         setUnreadTotal(sum);
+      } else {
+        setUnreadTotal(0);
       }
     } catch (e) {
       setUnreadTotal(0);

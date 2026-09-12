@@ -64,6 +64,12 @@ const ChatAiSettingModel = {
     `;
     const { rows } = await query(text, [userId, jid, enabled]);
     return rows[0];
+  },
+
+  async deleteAllByUser(userId) {
+    const text = `DELETE FROM chat_ai_settings WHERE user_id = $1`;
+    const { rowCount } = await query(text, [userId]);
+    return rowCount;
   }
 };
 

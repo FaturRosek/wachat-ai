@@ -367,6 +367,12 @@ const ContactModel = {
 
     const { rows } = await query(listText, params);
     return { rows, total };
+  },
+
+  async deleteAllByUser(userId) {
+    const text = `DELETE FROM contacts WHERE user_id = $1`;
+    const { rowCount } = await query(text, [userId]);
+    return rowCount;
   }
 };
 

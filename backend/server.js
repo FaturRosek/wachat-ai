@@ -69,6 +69,8 @@ const startServer = async () => {
 
     await testConnection();
     await testRedisConnection();
+    const { cleanDisconnectedData } = require("./src/database/cleanupDisconnected");
+    await cleanDisconnectedData();
     const whatsappService = require("./src/services/whatsappService");
     await whatsappService.restoreAllSavedSessions();
   });

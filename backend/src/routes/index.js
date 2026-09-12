@@ -7,10 +7,12 @@ const messageRoutes = require('./messageRoutes');
 const contactRoutes = require('./contactRoutes');
 const templateRoutes = require('./templateRoutes');
 const sendingJobRoutes = require('./sendingJobRoutes');
+const chatRoutes = require('./chatRoutes');
 
 router.use('/health', healthRoutes);
 router.use('/auth', authRoutes);
 router.use('/whatsapp', whatsappRoutes);
+router.use('/chats', chatRoutes);
 router.use('/messages', messageRoutes);
 router.use('/contacts', contactRoutes);
 router.use('/templates', templateRoutes);

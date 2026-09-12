@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { SocketProvider } from './context/SocketContext';
 import apiClient from './api/apiClient';
 import Sidebar from './components/Sidebar';
 import Navbar from './components/Navbar';
@@ -10,11 +11,12 @@ import MessageComposerPage from './pages/MessageComposerPage';
 import HistoryPage from './pages/HistoryPage';
 import ContactsPage from './pages/ContactsPage';
 import TemplatesPage from './pages/TemplatesPage';
-import { LayoutGrid, Smartphone, Send, Clock, Menu } from 'lucide-react';
+import WaWebChatPage from './pages/WaWebChatPage';
+import { LayoutGrid, Smartphone, Send, Clock, Menu, MessageSquare } from 'lucide-react';
 
 function DashboardLayout() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState('chat');
   const [waStatus, setWaStatus] = useState(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [contactCount, setContactCount] = useState(0);
@@ -51,7 +53,7 @@ function DashboardLayout() {
   }, [user?.id]);
 
   return (
-    <div className="flex min-h-screen bg-[#f4f7fb] text-slate-800 relative antialiased selection:bg-blue-100 selection:text-blue-700">
+    <div className="flex min-h-screen bg-[#f4f7fb] text-slate-800 relative antialiased selection:bg-emerald-100 selection:text-emerald-700">
       <Sidebar 
         activeTab={activeTab} 
         setActiveTab={setActiveTab} 
@@ -70,7 +72,10 @@ function DashboardLayout() {
           setActiveTab={setActiveTab}
         />
 
-        <main className="flex-1 p-4 sm:p-6 md:p-8 pb-24 md:pb-8 overflow-y-auto">
+        <main className={`flex-1 overflow-y-auto pb-24 md:pb-6 ${activeTab === 'chat' ? 'p-2 sm:p-4 md:p-6' : 'p-4 sm:p-6 md:p-8'}`}>
+          {activeTab === 'chat' && (
+            <WaWebChatPage waStatus={waStatus} />
+          )}
           {activeTab === 'dashboard' && (
             <DashboardPage setActiveTab={setActiveTab} waStatus={waStatus} />
           )}
@@ -93,22 +98,22 @@ function DashboardLayout() {
 
         <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 py-1.5 flex items-center justify-around shadow-lg">
           <button
-            onClick={() => setActiveTab('dashboard')}
+            onClick={() => setActiveTab('chat')}
             className={`flex flex-col items-center justify-center py-1.5 px-2 rounded-xl text-[10px] font-bold transition ${
-              activeTab === 'dashboard'
-                ? 'text-blue-600 bg-blue-50'
+              activeTab === 'chat'
+                ? 'text-emerald-600 bg-emerald-50'
                 : 'text-slate-500 hover:text-slate-800'
             }`}
           >
-            <LayoutGrid className="w-4 h-4 mb-0.5" />
-            <span>Dashboard</span>
+            <MessageSquare className="w-4 h-4 mb-0.5" />
+            <span>WA Web</span>
           </button>
 
           <button
             onClick={() => setActiveTab('whatsapp')}
             className={`flex flex-col items-center justify-center py-1.5 px-2 rounded-xl text-[10px] font-bold transition relative ${
               activeTab === 'whatsapp'
-                ? 'text-blue-600 bg-blue-50'
+                ? 'text-emerald-600 bg-emerald-50'
                 : 'text-slate-500 hover:text-slate-800'
             }`}
           >
@@ -123,8 +128,8 @@ function DashboardLayout() {
             onClick={() => setActiveTab('compose')}
             className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl text-[10px] font-bold transition ${
               activeTab === 'compose'
-                ? 'text-white bg-blue-600 shadow-xs shadow-blue-500/30'
-                : 'text-blue-600 bg-blue-50 border border-blue-200'
+                ? 'text-white bg-emerald-600 shadow-xs shadow-emerald-500/30'
+                : 'text-emerald-600 bg-emerald-50 border border-emerald-200'
             }`}
           >
             <Send className="w-4 h-4 mb-0.5" />
@@ -132,15 +137,15 @@ function DashboardLayout() {
           </button>
 
           <button
-            onClick={() => setActiveTab('history')}
+            onClick={() => setActiveTab('dashboard')}
             className={`flex flex-col items-center justify-center py-1.5 px-2 rounded-xl text-[10px] font-bold transition ${
-              activeTab === 'history'
-                ? 'text-blue-600 bg-blue-50'
+              activeTab === 'dashboard'
+                ? 'text-emerald-600 bg-emerald-50'
                 : 'text-slate-500 hover:text-slate-800'
             }`}
           >
-            <Clock className="w-4 h-4 mb-0.5" />
-            <span>Riwayat</span>
+            <LayoutGrid className="w-4 h-4 mb-0.5" />
+            <span>Statistik</span>
           </button>
 
           <button
@@ -162,7 +167,7 @@ function MainApp() {
   if (loading) {
     return (
       <div className="min-h-screen bg-[#f4f7fb] flex items-center justify-center text-slate-500">
-        <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+        <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
   }
@@ -171,7 +176,11 @@ function MainApp() {
     return <AuthPage />;
   }
 
-  return <DashboardLayout />;
+  return (
+    <SocketProvider>
+      <DashboardLayout />
+    </SocketProvider>
+  );
 }
 
 export default function App() {

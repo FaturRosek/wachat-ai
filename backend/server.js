@@ -4,13 +4,18 @@ const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
 
+const http = require("http");
 const apiRoutes = require("./src/routes");
 const { errorHandler, notFound } = require("./src/middleware/errorHandler");
 const { testConnection } = require("./src/config/database");
 const { testRedisConnection } = require("./src/config/redis");
+const socketService = require("./src/services/socketService");
 
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
+
+socketService.init(server);
 
 app.use(helmet());
 app.use(
@@ -43,7 +48,7 @@ app.use(notFound);
 app.use(errorHandler);
 
 const startServer = async () => {
-  const server = app.listen(PORT, async () => {
+  server.listen(PORT, async () => {
     console.log(`WaChat AI Backend running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
 

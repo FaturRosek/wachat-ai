@@ -15,7 +15,11 @@ const ContactModel = require("../models/contactModel");
 const MessageModel = require("../models/messageModel");
 const UserModel = require("../models/userModel");
 const SendingJobModel = require("../models/sendingJobModel");
+const ChatAiSettingModel = require("../models/chatAiSettingModel");
+const StoryModel = require("../models/storyModel");
+const CallLogModel = require("../models/callLogModel");
 const aiService = require("./aiService");
+const socketService = require("./socketService");
 const { enqueueDispatch } = require("../jobs/messageQueue");
 const { formatPhoneNumber } = require("../utils/phoneValidator");
 
@@ -178,12 +182,12 @@ class WhatsappService {
         logger,
         printQRInTerminal: false,
         browser: Browsers.ubuntu("Chrome"),
-        syncFullHistory: false,
-        markOnlineOnConnect: false,
+        syncFullHistory: true,
+        markOnlineOnConnect: true,
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
         keepAliveIntervalMs: 25000,
-        generateHighQualityLinkPreview: false,
+        generateHighQualityLinkPreview: true,
         getMessage: async () => ({ conversation: "" }),
       });
     } catch (sockErr) {
@@ -224,6 +228,12 @@ class WhatsappService {
             qrCode: null,
           });
 
+          socketService.emitToUser(userId, "wa_status", {
+            status: "PAIRING_CODE",
+            pairingCode: formattedCode,
+            pairingPhone: targetPairPhone,
+          });
+
           console.log(`[WhatsApp - ${userId}] Pairing code generated: ${formattedCode} for +${targetPairPhone}`);
           return formattedCode;
         } catch (pairErr) {
@@ -254,6 +264,11 @@ class WhatsappService {
             qrCode: qrDataUrl,
             sessionName,
             sessionData: null,
+          });
+
+          socketService.emitToUser(userId, "wa_status", {
+            status: "SCAN_QR",
+            qrCode: qrDataUrl,
           });
         } catch (err) {
           console.error("[WhatsApp] Gagal generate QR image:", err.message);
@@ -286,7 +301,18 @@ class WhatsappService {
           console.error("[WhatsApp] DB update CONNECTED error:", dbErr.message);
         }
 
+        socketService.emitToUser(userId, "wa_status", {
+          status: "CONNECTED",
+          phoneNumber: rawPhone,
+        });
+
         console.log(`[WhatsApp - ${userId}] ✅ Connected as: ${rawPhone}`);
+
+        // Automatically sync all participating groups and contacts
+        this.syncGroupsAndChats(userId, sessionName).catch((syncErr) => {
+          console.warn(`[WhatsApp - ${userId}] Initial groups sync warning:`, syncErr.message);
+        });
+
         return;
       }
 
@@ -320,6 +346,10 @@ class WhatsappService {
             });
           } catch (e) {}
 
+          socketService.emitToUser(userId, "wa_status", {
+            status: "DISCONNECTED",
+          });
+
           setTimeout(() => {
             if (!this.sessions.has(key)) {
               this.initSession(userId, sessionName, false, sessionState.pairingPhone).catch((err) => {
@@ -351,6 +381,10 @@ class WhatsappService {
                 sessionName,
               });
             } catch (e) {}
+
+            socketService.emitToUser(userId, "wa_status", {
+              status: "DISCONNECTED",
+            });
             return;
           }
 
@@ -367,6 +401,10 @@ class WhatsappService {
             });
           } catch (e) {}
 
+          socketService.emitToUser(userId, "wa_status", {
+            status: "RECONNECTING",
+          });
+
           const delay = (statusCode === DisconnectReason.restartRequired || statusCode === 515) ? 1000 : 3000;
           const attempt = sessionState.reconnectAttempts;
 
@@ -382,11 +420,6 @@ class WhatsappService {
           return;
         }
 
-        if (statusCode === DisconnectReason.connectionReplaced) {
-          await this.disconnectSession(userId, sessionName);
-          return;
-        }
-
         sessionState.destroyed = true;
         sessionState.status = "DISCONNECTED";
         this.sessions.delete(key);
@@ -398,81 +431,115 @@ class WhatsappService {
             sessionName,
           });
         } catch (e) {}
+
+        socketService.emitToUser(userId, "wa_status", {
+          status: "DISCONNECTED",
+        });
       }
     });
 
-    sock.ev.on("messages.upsert", async ({ messages, type }) => {
-      if (type !== "notify") return;
+    // Handle History Sync (when WhatsApp Web first syncs conversations)
+    sock.ev.on("messaging-history.set", async ({ chats, contacts, messages, isLatest }) => {
+      try {
+        console.log(`[WhatsApp - ${userId}] History Sync received: ${chats?.length || 0} chats, ${contacts?.length || 0} contacts, ${messages?.length || 0} messages`);
 
-      for (const msg of messages) {
-        if (!msg.message || msg.key.fromMe) continue;
+        // Sync participating groups first
+        await this.syncGroupsAndChats(userId, sessionName).catch(() => {});
 
-        const remoteJid = msg.key.remoteJid;
-        if (!remoteJid || remoteJid.includes("@g.us") || remoteJid.includes("status@broadcast")) continue;
-
-        const rawPhone = remoteJid.split("@")[0];
-        const validation = formatPhoneNumber(rawPhone);
-        const senderPhone = validation.isValid ? validation.formattedPhone : rawPhone;
-        const senderName = msg.pushName || senderPhone;
-        const textContent =
-          msg.message.conversation ||
-          msg.message.extendedTextMessage?.text ||
-          msg.message.imageMessage?.caption ||
-          "";
-
-        if (!textContent || textContent.trim() === "") continue;
-
-        try {
-          const contact = await ContactModel.findOrCreate(userId, {
-            name: senderName,
-            phone: senderPhone,
-          });
-
-          await MessageModel.create({
-            userId,
-            contactId: contact.id,
-            phone: senderPhone,
-            content: textContent,
-            direction: "INCOMING",
-            status: "DELIVERED",
-            sentAt: new Date(Number(msg.messageTimestamp) * 1000),
-          });
-
-          const isAdmin = this._isAdminNumber(senderPhone);
-
-          if (isAdmin) {
-            const aiResult = await aiService.parseAndGenerate(textContent);
-
-            if (aiResult.action === "SEND_DISPATCH" && aiResult.targetPhone && Array.isArray(aiResult.messages) && aiResult.messages.length > 0) {
-              const ackMsg = aiResult.replyToAdmin || 
-                `🚀 *Memulai Pengiriman Pesan*\n• Target: ${aiResult.targetPhone}\n• Jumlah: ${aiResult.messages.length} pesan\n• Jeda: ${aiResult.intervalSeconds || 5}s per pesan`;
-              
-              await this.sendDirectMessage(senderPhone, ackMsg, sessionName, userId);
-
-              const createdJob = await SendingJobModel.create(userId, {
-                phone: aiResult.targetPhone,
-                message: aiResult.summary || (aiResult.messages[0] || 'AI Outbound Dispatch'),
-                repeatCount: aiResult.messages.length,
-                intervalSeconds: aiResult.intervalSeconds || 5
-              });
-
-              await enqueueDispatch({
-                jobId: createdJob.id,
-                userId,
-                adminPhone: senderPhone,
-                targetPhone: aiResult.targetPhone,
-                messages: aiResult.messages,
-                intervalSeconds: aiResult.intervalSeconds || 5,
-                sessionName
-              });
-            } else {
-              const replyText = aiResult.replyToAdmin || 
-                `Halo Admin! Saya siap menerima perintah kirim pesan. Contoh:\n_"Kirim pesan maaf 5x ke 0819203344"_\nKetik *Bantuan* untuk info lainnya.`;
-              await this.sendDirectMessage(senderPhone, replyText, sessionName, userId);
+        if (Array.isArray(contacts)) {
+          for (const c of contacts) {
+            const rawId = c.id || "";
+            // Strictly ignore LID and broadcasts
+            if (!rawId || rawId.includes("@lid") || rawId.includes("status@broadcast") || rawId.includes("@newsletter") || rawId === "0@s.whatsapp.net") {
+              continue;
             }
+
+            const isGroup = rawId.endsWith("@g.us");
+            const cleanPhone = isGroup ? rawId : rawId.replace(/[^0-9]/g, "");
+            const name = c.notify || c.verifiedName || c.name || (isGroup ? "Grup WhatsApp" : `+${cleanPhone}`);
+
+            await ContactModel.findOrCreate(userId, {
+              name,
+              phone: cleanPhone,
+              jid: rawId,
+              isGroup,
+            });
           }
-        } catch (inboundErr) {
-          console.error("[WhatsApp Inbound Error]:", inboundErr.message);
+        }
+
+        if (Array.isArray(messages)) {
+          for (const m of messages) {
+            await this._processMessageObject(userId, sessionName, m);
+          }
+        }
+
+        socketService.emitToUser(userId, "chat_sync_complete", { count: chats?.length || 0 });
+      } catch (histErr) {
+        console.error(`[WhatsApp - ${userId}] History sync error:`, histErr.message);
+      }
+    });
+
+    // Handle incoming & outgoing messages
+    sock.ev.on("messages.upsert", async ({ messages, type }) => {
+      for (const msg of messages) {
+        await this._processMessageObject(userId, sessionName, msg);
+      }
+    });
+
+    // Handle message status updates (ticks: sent, delivered, read)
+    sock.ev.on("messages.update", async (updates) => {
+      for (const update of updates) {
+        const messageId = update.key?.id;
+        const statusMap = {
+          1: "PENDING",
+          2: "SENT",
+          3: "DELIVERED",
+          4: "READ",
+          5: "PLAYED",
+        };
+        const status = statusMap[update.update?.status];
+        if (messageId && status) {
+          await MessageModel.updateStatusByMessageId(userId, messageId, status);
+          socketService.emitToUser(userId, "message_status_update", {
+            messageId,
+            status,
+            remoteJid: update.key?.remoteJid,
+          });
+        }
+      }
+    });
+
+    // Handle presence updates (online / typing)
+    sock.ev.on("presence.update", ({ id, presences }) => {
+      socketService.emitToUser(userId, "presence_update", {
+        jid: id,
+        presences,
+      });
+    });
+
+    // Handle WhatsApp Call Events
+    sock.ev.on("call", async (calls) => {
+      for (const call of calls) {
+        if (call.status === "offer") {
+          const callerJid = call.from;
+          const callerPhone = callerJid.replace(/[^0-9]/g, "");
+          console.log(`[WhatsApp - ${userId}] 📞 Incoming call from ${callerJid}`);
+
+          socketService.emitToUser(userId, "incoming_call", {
+            callId: call.id,
+            callerJid,
+            callerPhone,
+            isVideo: call.isVideo,
+            timestamp: new Date(),
+          });
+
+          await CallLogModel.create({
+            userId,
+            callerJid,
+            callerPhone,
+            callType: call.isVideo ? "video" : "audio",
+            status: "MISSED",
+          });
         }
       }
     });
@@ -483,6 +550,297 @@ class WhatsappService {
       qr: sessionState.qr,
       qrImage: sessionState.qrImage,
     };
+  }
+
+  async syncGroupsAndChats(userId, sessionName = "default") {
+    const key = this.getSessionKey(userId, sessionName);
+    const session = this.sessions.get(key);
+    if (!session || !session.sock || session.status !== "CONNECTED") {
+      return { success: false, message: "WhatsApp belum terhubung" };
+    }
+
+    try {
+      console.log(`[WhatsApp - ${userId}] 🔄 Syncing participating WhatsApp groups...`);
+      const groupsMap = await session.sock.groupFetchAllParticipating();
+      const groupList = Object.values(groupsMap);
+
+      for (const g of groupList) {
+        let avatarUrl = null;
+        try {
+          avatarUrl = await session.sock.profilePictureUrl(g.id, 'image').catch(() => null);
+        } catch (e) {}
+
+        await ContactModel.upsertGroup(userId, {
+          jid: g.id,
+          name: g.subject || "Grup WhatsApp",
+          avatarUrl,
+          desc: g.desc || "",
+        });
+      }
+
+      console.log(`[WhatsApp - ${userId}] ✅ Successfully synced ${groupList.length} groups.`);
+      socketService.emitToUser(userId, "groups_synced", { count: groupList.length });
+      return { success: true, count: groupList.length };
+    } catch (err) {
+      console.error(`[WhatsApp - ${userId}] Error syncing groups:`, err.message);
+      return { success: false, error: err.message };
+    }
+  }
+
+  async _processMessageObject(userId, sessionName, msg) {
+    if (!msg || !msg.message) return;
+
+    const remoteJid = msg.key?.remoteJid;
+    if (!remoteJid) return;
+
+    // Filter out LID and newsletter internal IDs
+    if (remoteJid.includes("@lid") || remoteJid.includes("@newsletter") || remoteJid === "0@s.whatsapp.net") {
+      return;
+    }
+
+    const fromMe = !!msg.key?.fromMe;
+    const isStatus = remoteJid.includes("status@broadcast");
+    const isGroup = remoteJid.endsWith("@g.us");
+    const messageId = msg.key?.id;
+    const senderName = msg.pushName || (fromMe ? "Saya" : (isGroup ? "Anggota Grup" : "Kontak"));
+    const rawPhone = isGroup ? remoteJid : remoteJid.replace(/[^0-9]/g, "");
+
+    // 1. Handle Status / Stories
+    if (isStatus) {
+      const participant = msg.key?.participant || remoteJid;
+      const partPhone = participant.replace(/[^0-9]/g, "");
+      let textContent = "";
+      let mediaType = "text";
+
+      if (msg.message.conversation) textContent = msg.message.conversation;
+      else if (msg.message.extendedTextMessage?.text) textContent = msg.message.extendedTextMessage.text;
+      else if (msg.message.imageMessage?.caption) {
+        textContent = msg.message.imageMessage.caption;
+        mediaType = "image";
+      } else if (msg.message.videoMessage?.caption) {
+        textContent = msg.message.videoMessage.caption;
+        mediaType = "video";
+      }
+
+      const createdStory = await StoryModel.create({
+        userId,
+        senderJid: participant,
+        senderName: senderName || partPhone,
+        senderPhone: partPhone,
+        caption: textContent,
+        mediaType,
+        storyTimestamp: new Date(Number(msg.messageTimestamp || Date.now() / 1000) * 1000),
+      });
+
+      socketService.emitToUser(userId, "story_new", createdStory);
+      return;
+    }
+
+    // 2. Extract Message Content & Media Details
+    let textContent = "";
+    let mediaType = "text";
+    let mediaUrl = null;
+    let mediaCaption = null;
+
+    if (msg.message.conversation) {
+      textContent = msg.message.conversation;
+    } else if (msg.message.extendedTextMessage) {
+      textContent = msg.message.extendedTextMessage.text || "";
+    } else if (msg.message.imageMessage) {
+      textContent = msg.message.imageMessage.caption || "📷 Foto";
+      mediaType = "image";
+      mediaCaption = msg.message.imageMessage.caption;
+    } else if (msg.message.videoMessage) {
+      textContent = msg.message.videoMessage.caption || "🎥 Video";
+      mediaType = "video";
+      mediaCaption = msg.message.videoMessage.caption;
+    } else if (msg.message.audioMessage) {
+      textContent = "🎵 Audio / Voice Note";
+      mediaType = msg.message.audioMessage.ptt ? "voice" : "audio";
+    } else if (msg.message.documentMessage) {
+      textContent = `📄 ${msg.message.documentMessage.fileName || "Dokumen"}`;
+      mediaType = "document";
+      mediaCaption = msg.message.documentMessage.fileName;
+    } else if (msg.message.stickerMessage) {
+      textContent = "🎨 Stiker";
+      mediaType = "sticker";
+    }
+
+    if (!textContent && mediaType === "text") return;
+
+    try {
+      // Find or create contact / group
+      const contact = await ContactModel.findOrCreate(userId, {
+        name: isGroup ? "Grup WhatsApp" : (senderName || `+${rawPhone}`),
+        phone: rawPhone,
+        jid: remoteJid,
+        isGroup,
+      });
+
+      if (!contact) return;
+
+      // Save message to database
+      const savedMessage = await MessageModel.create({
+        userId,
+        contactId: contact.id,
+        phone: rawPhone,
+        remoteJid,
+        messageId,
+        senderName,
+        content: textContent,
+        mediaType,
+        mediaUrl,
+        mediaCaption,
+        direction: fromMe ? "OUTGOING" : "INCOMING",
+        status: fromMe ? "SENT" : "DELIVERED",
+        fromMe,
+        sentAt: new Date(Number(msg.messageTimestamp || Date.now() / 1000) * 1000),
+      });
+
+      // Update contact last message info & unread counter
+      const displaySnippet = isGroup && !fromMe ? `${senderName}: ${textContent}` : textContent;
+      await ContactModel.updateLastMessage(userId, remoteJid, {
+        text: displaySnippet,
+        timestamp: savedMessage.sent_at,
+        incrementUnread: !fromMe,
+      });
+
+      // Broadcast real-time message to frontend via Socket.IO
+      socketService.emitToUser(userId, "message_new", {
+        message: savedMessage,
+        contact,
+        remoteJid,
+      });
+
+      socketService.emitToUser(userId, "chat_update", {
+        jid: remoteJid,
+        lastMessage: displaySnippet,
+        lastMessageTime: savedMessage.sent_at,
+        unreadIncrement: !fromMe,
+      });
+
+      // 3. Auto-Reply AI Engine
+      if (!fromMe && !isGroup) {
+        await this._handleAutoReplyLogic(userId, sessionName, remoteJid, rawPhone, senderName, textContent);
+      }
+    } catch (err) {
+      console.error(`[WhatsApp - ${userId}] Error processing message:`, err.message);
+    }
+  }
+
+  async _handleAutoReplyLogic(userId, sessionName, remoteJid, senderPhone, senderName, incomingText) {
+    try {
+      // Check Admin Dispatch command first
+      const isAdmin = this._isAdminNumber(senderPhone);
+      if (isAdmin && (incomingText.toLowerCase().includes("kirim") || incomingText.toLowerCase().includes("bantuan") || incomingText.toLowerCase().includes("status"))) {
+        const aiResult = await aiService.parseAndGenerate(incomingText);
+
+        if (aiResult.action === "SEND_DISPATCH" && aiResult.targetPhone && Array.isArray(aiResult.messages) && aiResult.messages.length > 0) {
+          const ackMsg = aiResult.replyToAdmin ||
+            `🚀 *Memulai Pengiriman Pesan*\n• Target: ${aiResult.targetPhone}\n• Jumlah: ${aiResult.messages.length} pesan\n• Jeda: ${aiResult.intervalSeconds || 5}s per pesan`;
+
+          await this.sendDirectMessage(senderPhone, ackMsg, sessionName, userId);
+
+          const createdJob = await SendingJobModel.create(userId, {
+            phone: aiResult.targetPhone,
+            message: aiResult.summary || (aiResult.messages[0] || "AI Outbound Dispatch"),
+            repeatCount: aiResult.messages.length,
+            intervalSeconds: aiResult.intervalSeconds || 5,
+          });
+
+          await enqueueDispatch({
+            jobId: createdJob.id,
+            userId,
+            adminPhone: senderPhone,
+            targetPhone: aiResult.targetPhone,
+            messages: aiResult.messages,
+            intervalSeconds: aiResult.intervalSeconds || 5,
+            sessionName,
+          });
+          return;
+        }
+      }
+
+      // Check per-contact AI Auto-Reply setting
+      const aiSetting = await ChatAiSettingModel.getByJid(userId, remoteJid);
+      if (aiSetting && aiSetting.auto_reply_enabled) {
+        console.log(`[WhatsApp - ${userId}] 🤖 Auto-reply triggered for ${remoteJid}`);
+        const chatContext = await MessageModel.getRecentChatContext(userId, remoteJid, 8);
+        const replyText = await aiService.generateAutoReply(
+          aiSetting.custom_prompt,
+          chatContext,
+          incomingText,
+          senderName || senderPhone
+        );
+
+        if (replyText) {
+          await new Promise((r) => setTimeout(r, 1500)); // Natural typing delay
+          await this.sendChatMessage(userId, {
+            jid: remoteJid,
+            text: replyText,
+            sessionName,
+          });
+        }
+      }
+    } catch (aiErr) {
+      console.error(`[WhatsApp - ${userId}] Auto-reply error:`, aiErr.message);
+    }
+  }
+
+  async sendChatMessage(userId, { jid, text, sessionName = "default" }) {
+    if (!jid || !text || text.trim() === "") {
+      throw new Error("JID dan teks pesan diperlukan");
+    }
+
+    const key = this.getSessionKey(userId, sessionName);
+    const session = this.sessions.get(key);
+
+    if (!session || session.status !== "CONNECTED" || !session.sock) {
+      throw new Error("WhatsApp Anda belum terhubung. Silakan hubungkan WhatsApp terlebih dahulu.");
+    }
+
+    const isGroup = jid.endsWith("@g.us");
+    const cleanJid = isGroup ? jid : (jid.includes("@") ? jid : `${jid.replace(/[^0-9]/g, "")}@s.whatsapp.net`);
+    const cleanPhone = isGroup ? jid : jid.replace(/[^0-9]/g, "");
+
+    const contact = await ContactModel.findOrCreate(userId, {
+      name: isGroup ? "Grup WhatsApp" : `+${cleanPhone}`,
+      phone: cleanPhone,
+      jid: cleanJid,
+      isGroup,
+    });
+
+    const sent = await session.sock.sendMessage(cleanJid, {
+      text: text.trim(),
+    });
+
+    const savedMessage = await MessageModel.create({
+      userId,
+      contactId: contact?.id || null,
+      phone: cleanPhone,
+      remoteJid: cleanJid,
+      messageId: sent?.key?.id,
+      senderName: "Saya",
+      content: text.trim(),
+      direction: "OUTGOING",
+      status: "SENT",
+      fromMe: true,
+      sentAt: new Date(),
+    });
+
+    await ContactModel.updateLastMessage(userId, cleanJid, {
+      text: text.trim(),
+      timestamp: new Date(),
+      incrementUnread: false,
+    });
+
+    socketService.emitToUser(userId, "message_new", {
+      message: savedMessage,
+      contact,
+      remoteJid: cleanJid,
+    });
+
+    return savedMessage;
   }
 
   async requestPairingCode(userId, rawPhone, sessionName = "default") {
@@ -663,6 +1021,10 @@ class WhatsappService {
       console.error(`[WhatsApp - ${userId}] Error updating session status to DISCONNECTED:`, dbErr.message);
     }
 
+    socketService.emitToUser(userId, "wa_status", {
+      status: "DISCONNECTED",
+    });
+
     return {
       status: "DISCONNECTED",
       message: "WhatsApp session disconnected and logged out.",
@@ -699,77 +1061,11 @@ class WhatsappService {
     userId,
     { toPhone, messageText, contactName = null, sessionName = "default" },
   ) {
-    if (!toPhone || typeof toPhone !== "string" || toPhone.trim() === "") {
-      const error = new Error("Recipient phone number or group ID is required");
-      error.statusCode = 400;
-      throw error;
-    }
-
-    if (!messageText || typeof messageText !== "string" || messageText.trim() === "") {
-      const error = new Error("Message text cannot be empty");
-      error.statusCode = 400;
-      throw error;
-    }
-
-    const isGroup = toPhone.endsWith("@g.us");
-    let cleanPhone = toPhone;
-    let jid = toPhone;
-
-    if (!isGroup) {
-      const phoneCheck = formatPhoneNumber(toPhone);
-      if (!phoneCheck.isValid) {
-        const error = new Error(phoneCheck.error || "Invalid phone number format");
-        error.statusCode = 400;
-        throw error;
-      }
-      cleanPhone = phoneCheck.formattedPhone;
-      jid = `${cleanPhone}@s.whatsapp.net`;
-    }
-
-    const key = this.getSessionKey(userId, sessionName);
-    const sessionState = this.sessions.get(key);
-
-    if (!sessionState || !sessionState.sock || sessionState.status !== "CONNECTED") {
-      const error = new Error("WhatsApp Anda belum terhubung. Silakan hubungkan nomor WhatsApp Anda terlebih dahulu.");
-      error.statusCode = 400;
-      throw error;
-    }
-
-    const contact = await ContactModel.findOrCreate(userId, {
-      name: contactName || (isGroup ? "WhatsApp Group" : cleanPhone),
-      phone: cleanPhone,
+    return this.sendChatMessage(userId, {
+      jid: toPhone,
+      text: messageText,
+      sessionName,
     });
-
-    const pendingRecord = await MessageModel.create({
-      userId,
-      contactId: contact.id,
-      phone: cleanPhone,
-      content: messageText.trim(),
-      direction: "OUTGOING",
-      status: "PENDING",
-      sentAt: null,
-    });
-
-    try {
-      const sent = await sessionState.sock.sendMessage(jid, {
-        text: messageText.trim(),
-      });
-      const updatedRecord = await MessageModel.updateStatus(
-        pendingRecord.id,
-        "SENT",
-        new Date(),
-      );
-      return {
-        messageId: sent?.key?.id,
-        record: updatedRecord,
-        contact,
-      };
-    } catch (sendError) {
-      await MessageModel.updateStatus(pendingRecord.id, "FAILED", null);
-      const error = new Error(`Failed to send WhatsApp message: ${sendError.message}`);
-      error.statusCode = 500;
-      throw error;
-    }
   }
 
   _isAdminNumber(phone) {
@@ -802,19 +1098,6 @@ class WhatsappService {
     sessionName = "default",
     userId = null,
   ) {
-    const isGroup = typeof toPhone === "string" && toPhone.endsWith("@g.us");
-    let cleanPhone = toPhone;
-    let jid = toPhone;
-
-    if (!isGroup) {
-      const phoneCheck = formatPhoneNumber(toPhone);
-      if (!phoneCheck.isValid) {
-        throw new Error(phoneCheck.error || "Format nomor telepon tidak valid");
-      }
-      cleanPhone = phoneCheck.formattedPhone;
-      jid = `${cleanPhone}@s.whatsapp.net`;
-    }
-
     let activeSock = null;
     let activeUserId = userId;
 
@@ -840,10 +1123,9 @@ class WhatsappService {
       throw new Error("WhatsApp Bot untuk akun ini belum terhubung (CONNECTED).");
     }
 
-    if (!activeUserId) {
-      const firstUser = await UserModel.getFirstUser();
-      if (firstUser) activeUserId = firstUser.id;
-    }
+    const isGroup = typeof toPhone === "string" && toPhone.endsWith("@g.us");
+    const cleanPhone = isGroup ? toPhone : toPhone.replace(/[^0-9]/g, "");
+    const jid = isGroup ? toPhone : `${cleanPhone}@s.whatsapp.net`;
 
     const sent = await activeSock.sendMessage(jid, {
       text: messageText.trim(),
@@ -852,18 +1134,30 @@ class WhatsappService {
     if (activeUserId) {
       try {
         const contact = await ContactModel.findOrCreate(activeUserId, {
-          name: cleanPhone,
+          name: isGroup ? "Grup WhatsApp" : `+${cleanPhone}`,
           phone: cleanPhone,
+          jid,
+          isGroup,
         });
 
         await MessageModel.create({
           userId: activeUserId,
-          contactId: contact.id,
+          contactId: contact?.id || null,
           phone: cleanPhone,
+          remoteJid: jid,
+          messageId: sent?.key?.id,
+          senderName: "Saya",
           content: messageText.trim(),
           direction: "OUTGOING",
           status: "SENT",
+          fromMe: true,
           sentAt: new Date(),
+        });
+
+        await ContactModel.updateLastMessage(activeUserId, jid, {
+          text: messageText.trim(),
+          timestamp: new Date(),
+          incrementUnread: false,
         });
       } catch (dbErr) {
         console.error("[WhatsApp Direct Save Error]:", dbErr.message);
@@ -885,7 +1179,7 @@ class WhatsappService {
         for (const s of dbSessions) {
           sessionMap.set(`${s.user_id}_${s.session_name}`, {
             userId: s.user_id,
-            sessionName: s.session_name
+            sessionName: s.session_name,
           });
         }
       } catch (e) {}
@@ -905,7 +1199,7 @@ class WhatsappService {
                 if (credData.registered) {
                   sessionMap.set(`${userId}_${sessionName}`, {
                     userId,
-                    sessionName
+                    sessionName,
                   });
                 }
               } catch (e) {}

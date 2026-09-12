@@ -20,13 +20,15 @@ export default function Navbar({ waStatus, onRefreshStatus, onToggleMobileMenu, 
 
   const getPageTitle = () => {
     switch (activeTab) {
+      case 'chat': return 'WhatsApp Web Live Chat & AI';
+      case 'dashboard': return 'Dashboard & Statistik';
       case 'whatsapp': return 'Koneksi WhatsApp';
-      case 'compose': return 'Kirim Pesan';
+      case 'compose': return 'Kirim Blast / Pesan';
       case 'history': return 'Riwayat Pesan';
       case 'contacts': return 'Buku Kontak';
       case 'templates': return 'Template Pesan';
       case 'ai-trigger': return 'AI Direct Trigger';
-      default: return 'Dashboard Overview';
+      default: return 'WhatsApp Web';
     }
   };
 

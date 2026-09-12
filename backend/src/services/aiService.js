@@ -39,25 +39,27 @@ FORMAT OUTPUT WAJIB JSON MURNI:
 }`;
   }
 
-  async _callGemini(promptText) {
+  async _callGeminiRaw(prompt, systemInstruction = null, jsonMode = true) {
     const apiKey = process.env.GEMINI_API_KEY || this.geminiApiKey;
     if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
 
     const modelName = process.env.AI_MODEL || 'gemini-2.5-flash';
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
+    const contents = [];
+    if (systemInstruction) {
+      contents.push({ role: 'user', parts: [{ text: `${systemInstruction}\n\n${prompt}` }] });
+    } else {
+      contents.push({ role: 'user', parts: [{ text: prompt }] });
+    }
+
     const payload = {
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: `${this.getSystemInstruction()}\n\nInstruksi Admin:\n"${promptText}"` }]
-        }
-      ],
+      contents,
       generationConfig: {
         temperature: 0.7,
         topP: 0.95,
         maxOutputTokens: 2048,
-        responseMimeType: 'application/json'
+        ...(jsonMode ? { responseMimeType: 'application/json' } : {})
       }
     };
 
@@ -72,59 +74,27 @@ FORMAT OUTPUT WAJIB JSON MURNI:
     }
 
     const rawText = candidates[0].content?.parts?.[0]?.text || '';
-    return this._cleanJsonString(rawText);
+    return jsonMode ? this._cleanJsonString(rawText) : rawText.trim();
   }
 
-  async _callGeminiVariation(text, count) {
-    const apiKey = process.env.GEMINI_API_KEY || this.geminiApiKey;
-    if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
-
-    const modelName = process.env.AI_MODEL || 'gemini-2.5-flash';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
-
-    const prompt = `Anda adalah asisten WhatsApp profesional.
-Tugas Anda adalah membuat ${count} variasi pesan chat WhatsApp yang ramah, santun, dan natural dalam gaya bahasa Indonesia berdasarkan pesan dasar: "${text}".
-
-FORMAT OUTPUT WAJIB JSON:
-{ "variations": ["variasi 1", "variasi 2"] }`;
-
-    const payload = {
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        temperature: 0.85
-      }
-    };
-
-    const response = await axios.post(url, payload, {
-      headers: { 'Content-Type': 'application/json' },
-      timeout: 15000
-    });
-
-    const candidates = response.data?.candidates;
-    if (!candidates || candidates.length === 0) {
-      throw new Error('No candidate response from Gemini API');
-    }
-
-    const rawText = candidates[0].content?.parts?.[0]?.text || '';
-    return this._cleanJsonString(rawText);
-  }
-
-  async _callOpenAI(promptText) {
+  async _callOpenAIRaw(prompt, systemInstruction = null, jsonMode = true) {
     const apiKey = process.env.OPENAI_API_KEY || this.openaiApiKey;
     if (!apiKey) throw new Error('OPENAI_API_KEY is not configured');
 
     const modelName = process.env.AI_MODEL || 'gpt-4o-mini';
     const url = 'https://api.openai.com/v1/chat/completions';
 
+    const messages = [];
+    if (systemInstruction) {
+      messages.push({ role: 'system', content: systemInstruction });
+    }
+    messages.push({ role: 'user', content: prompt });
+
     const payload = {
       model: modelName,
-      messages: [
-        { role: 'system', content: this.getSystemInstruction() },
-        { role: 'user', content: promptText }
-      ],
+      messages,
       temperature: 0.7,
-      response_format: { type: 'json_object' }
+      ...(jsonMode ? { response_format: { type: 'json_object' } } : {})
     };
 
     const response = await axios.post(url, payload, {
@@ -132,11 +102,11 @@ FORMAT OUTPUT WAJIB JSON:
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
       },
-      timeout: 30000
+      timeout: 25000
     });
 
     const content = response.data?.choices?.[0]?.message?.content || '';
-    return this._cleanJsonString(content);
+    return jsonMode ? this._cleanJsonString(content) : content.trim();
   }
 
   _cleanJsonString(str) {
@@ -149,39 +119,180 @@ FORMAT OUTPUT WAJIB JSON:
     return JSON.parse(clean);
   }
 
+  async generateSmartReplies(chatHistory = [], lastMessage = '') {
+    const historyText = chatHistory
+      .slice(-6)
+      .map((m) => `${m.from_me || m.direction === 'OUTGOING' ? 'Saya' : 'Lawan Bicara'}: ${m.content}`)
+      .join('\n');
+
+    const prompt = `Berikut riwayat percakapan WhatsApp terkini:
+${historyText}
+
+Pesan Terakhir yang diterima: "${lastMessage}"
+
+Berikan 3 rekomendasi balasan pesan instan yang singkat, natural, ramah, dan sangat relevan dalam bahasa Indonesia.
+Format output JSON murni:
+{
+  "suggestions": [
+    "Opsi balasan 1",
+    "Opsi balasan 2",
+    "Opsi balasan 3"
+  ]
+}`;
+
+    try {
+      if (process.env.GEMINI_API_KEY || this.geminiApiKey) {
+        const res = await this._callGeminiRaw(prompt, 'Anda adalah AI WhatsApp Assistant.');
+        if (res.suggestions && Array.isArray(res.suggestions)) return res.suggestions.slice(0, 3);
+      } else if (process.env.OPENAI_API_KEY || this.openaiApiKey) {
+        const res = await this._callOpenAIRaw(prompt, 'Anda adalah AI WhatsApp Assistant.');
+        if (res.suggestions && Array.isArray(res.suggestions)) return res.suggestions.slice(0, 3);
+      }
+    } catch (e) {
+      console.warn('[AI Service] Smart replies generation failed:', e.message);
+    }
+
+    // Fallback smart replies
+    return [
+      'Siap, baik kak 👍',
+      'Terima kasih infonya, akan segera saya cek.',
+      'Ada yang bisa saya bantu lagi?'
+    ];
+  }
+
+  async summarizeChat(chatHistory = []) {
+    if (!chatHistory || chatHistory.length === 0) {
+      return 'Belum ada riwayat percakapan untuk dirangkum.';
+    }
+
+    const conversation = chatHistory
+      .map((m) => `${m.from_me || m.direction === 'OUTGOING' ? 'Saya' : (m.sender_name || 'Kontak')}: ${m.content}`)
+      .join('\n');
+
+    const prompt = `Rangkum riwayat percakapan WhatsApp berikut secara singkat, padat, dan jelas menggunakan poin-poin (bullet points):
+${conversation}
+
+Format JSON:
+{
+  "summary": "Rangkuman dalam bentuk teks markdown..."
+}`;
+
+    try {
+      if (process.env.GEMINI_API_KEY || this.geminiApiKey) {
+        const res = await this._callGeminiRaw(prompt);
+        if (res.summary) return res.summary;
+      } else if (process.env.OPENAI_API_KEY || this.openaiApiKey) {
+        const res = await this._callOpenAIRaw(prompt);
+        if (res.summary) return res.summary;
+      }
+    } catch (e) {
+      console.warn('[AI Service] Summarize failed:', e.message);
+    }
+
+    return `📌 **Ringkasan Singkat:** Percakapan terdiri dari ${chatHistory.length} pesan terkait interaksi terkini.`;
+  }
+
+  async rewriteMessage(draftText, tone = 'friendly') {
+    if (!draftText || draftText.trim() === '') return draftText;
+
+    const toneInstructions = {
+      formal: 'Sopan, profesional, baku, dan resmi untuk bisnis/kantor.',
+      friendly: 'Ramah, santai, akrab, hangat dengan sedikit emoji yang relevan.',
+      persuasive: 'Menarik, meyakinkan untuk penawaran / promosi / sales closing.',
+      short: 'Sangat singkat, padat, to the point tanpa basa-basi.'
+    };
+
+    const instruction = toneInstructions[tone] || toneInstructions.friendly;
+
+    const prompt = `Tulis ulang pesan WhatsApp berikut dengan gaya bahasa: ${instruction}
+Teks asli: "${draftText}"
+
+Format JSON:
+{
+  "rewritten": "Hasil teks yang telah ditulis ulang"
+}`;
+
+    try {
+      if (process.env.GEMINI_API_KEY || this.geminiApiKey) {
+        const res = await this._callGeminiRaw(prompt);
+        if (res.rewritten) return res.rewritten;
+      } else if (process.env.OPENAI_API_KEY || this.openaiApiKey) {
+        const res = await this._callOpenAIRaw(prompt);
+        if (res.rewritten) return res.rewritten;
+      }
+    } catch (e) {
+      console.warn('[AI Service] Rewrite failed:', e.message);
+    }
+
+    return draftText;
+  }
+
+  async generateAutoReply(customPrompt, chatHistory = [], incomingMessage = '', contactName = 'Customer') {
+    const historyText = chatHistory
+      .slice(-6)
+      .map((m) => `${m.from_me || m.direction === 'OUTGOING' ? 'Bot/Saya' : contactName}: ${m.content}`)
+      .join('\n');
+
+    const systemPrompt = customPrompt || 
+      `Anda adalah asisten WhatsApp cerdas dan ramah. Jawab pesan ${contactName} dengan sopan, natural, informatif, dan tidak terlalu panjang (1-3 kalimat).`;
+
+    const userPrompt = `Riwayat percakapan:\n${historyText}\n\nPesan baru dari ${contactName}: "${incomingMessage}"\n\nTuliskan balasan balasan chat yang tepat:\nFormat JSON:\n{ "reply": "Isi balasan chat" }`;
+
+    try {
+      if (process.env.GEMINI_API_KEY || this.geminiApiKey) {
+        const res = await this._callGeminiRaw(userPrompt, systemPrompt);
+        if (res.reply) return res.reply;
+      } else if (process.env.OPENAI_API_KEY || this.openaiApiKey) {
+        const res = await this._callOpenAIRaw(userPrompt, systemPrompt);
+        if (res.reply) return res.reply;
+      }
+    } catch (e) {
+      console.warn('[AI Service] Auto-reply generation failed:', e.message);
+    }
+
+    return `Halo kak ${contactName}, terima kasih pesannya telah kami terima. Akan segera kami respon secepatnya ya! 😊`;
+  }
+
   async generateVariations(originalText, count = 5) {
     if (!originalText || typeof originalText !== 'string' || originalText.trim() === '') {
       return Array(count).fill('Halo!');
     }
 
     const cleanBase = originalText.trim();
-    const hasGemini = !!(process.env.GEMINI_API_KEY || this.geminiApiKey);
-    const hasOpenAI = !!(process.env.OPENAI_API_KEY || this.openaiApiKey);
+    const prompt = `Anda adalah asisten WhatsApp profesional. Buatkan ${count} variasi pesan chat yang ramah, santun, dan natural dalam bahasa Indonesia berdasarkan pesan dasar: "${cleanBase}".
+Format JSON: { "variations": ["variasi 1", "variasi 2"] }`;
 
-    if (hasGemini || hasOpenAI) {
-      try {
-        let result = null;
-        if (this.provider === 'openai' && hasOpenAI) {
-          const prompt = `Buatkan ${count} variasi pesan singkat yang ramah dan natural dari teks: "${cleanBase}". FORMAT JSON: { "variations": ["..."] }`;
-          result = await this._callOpenAI(prompt);
-        } else if (hasGemini) {
-          result = await this._callGeminiVariation(cleanBase, count);
-        }
-
-        if (result && Array.isArray(result.variations) && result.variations.length > 0) {
-          return result.variations.slice(0, count);
-        }
-      } catch (err) {
-        console.warn('[AI Service] AI variation failed:', err.message);
+    try {
+      if (process.env.GEMINI_API_KEY || this.geminiApiKey) {
+        const res = await this._callGeminiRaw(prompt);
+        if (res.variations && Array.isArray(res.variations)) return res.variations.slice(0, count);
+      } else if (process.env.OPENAI_API_KEY || this.openaiApiKey) {
+        const res = await this._callOpenAIRaw(prompt);
+        if (res.variations && Array.isArray(res.variations)) return res.variations.slice(0, count);
       }
+    } catch (e) {
+      console.warn('[AI Service] AI variation failed:', e.message);
     }
 
     return Array(count).fill(cleanBase);
   }
 
+  async parseAndGenerate(promptText) {
+    try {
+      if (process.env.OPENAI_API_KEY || this.openaiApiKey) {
+        return await this._callOpenAIRaw(promptText, this.getSystemInstruction());
+      }
+      if (process.env.GEMINI_API_KEY || this.geminiApiKey) {
+        return await this._callGeminiRaw(promptText, this.getSystemInstruction());
+      }
+    } catch (e) {
+      console.warn('[AI Service] AI parse failed, using fallback rule parser:', e.message);
+    }
+    return this._fallbackRuleParser(promptText);
+  }
+
   _fallbackRuleParser(text) {
     const raw = text.trim();
-
     const groupMatch = raw.match(/[0-9]{15,25}@g\.us/i);
     const phoneMatch = raw.match(/(?:(?:\+?62)|0)8[0-9]{7,13}/g);
     let targetPhone = groupMatch ? groupMatch[0] : null;
@@ -253,29 +364,6 @@ FORMAT OUTPUT WAJIB JSON:
       action: 'CHAT',
       replyToAdmin: `Halo Admin! Saya siap menerima perintah pengiriman pesan. Contoh:\n_"Kirim pesan maaf 5x ke 0819203344"_`
     };
-  }
-
-  async parseAndGenerate(promptText) {
-    const hasGemini = !!(process.env.GEMINI_API_KEY || this.geminiApiKey);
-    const hasOpenAI = !!(process.env.OPENAI_API_KEY || this.openaiApiKey);
-
-    if (this.provider === 'openai' && hasOpenAI) {
-      try {
-        return await this._callOpenAI(promptText);
-      } catch (err) {
-        console.warn('[AI Service] OpenAI failed, falling back:', err.message);
-      }
-    }
-
-    if (hasGemini) {
-      try {
-        return await this._callGemini(promptText);
-      } catch (err) {
-        console.warn('[AI Service] Gemini failed, falling back:', err.message);
-      }
-    }
-
-    return this._fallbackRuleParser(promptText);
   }
 }
 

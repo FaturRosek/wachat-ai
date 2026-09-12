@@ -1,0 +1,87 @@
+const { Server } = require("socket.io");
+const jwt = require("jsonwebtoken");
+
+class SocketService {
+  constructor() {
+    this.io = null;
+  }
+
+  init(httpServer) {
+    this.io = new Server(httpServer, {
+      cors: {
+        origin: process.env.CLIENT_URL ? process.env.CLIENT_URL.split(",") : "*",
+        methods: ["GET", "POST"],
+        credentials: true,
+      },
+      pingTimeout: 60000,
+      pingInterval: 25000,
+    });
+
+    this.io.use((socket, next) => {
+      const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+      if (!token) {
+        return next(new Error("Authentication token required"));
+      }
+
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || "default_jwt_secret_key");
+        socket.user = decoded;
+        next();
+      } catch (err) {
+        return next(new Error("Invalid authentication token"));
+      }
+    });
+
+    this.io.on("connection", (socket) => {
+      const userId = socket.user?.id;
+      if (userId) {
+        socket.join(`user_${userId}`);
+        console.log(`[Socket] User connected: ${userId} (Socket ID: ${socket.id})`);
+      }
+
+      socket.on("join_chat", ({ jid }) => {
+        if (jid) {
+          socket.join(`chat_${userId}_${jid}`);
+        }
+      });
+
+      socket.on("leave_chat", ({ jid }) => {
+        if (jid) {
+          socket.leave(`chat_${userId}_${jid}`);
+        }
+      });
+
+      socket.on("typing", ({ jid, isTyping }) => {
+        if (userId && jid) {
+          this.io.to(`chat_${userId}_${jid}`).emit("presence_update", {
+            jid,
+            isTyping,
+            userId,
+          });
+        }
+      });
+
+      socket.on("disconnect", () => {
+        console.log(`[Socket] Client disconnected: ${socket.id}`);
+      });
+    });
+
+    console.log("[Socket] Socket.IO server initialized successfully.");
+    return this.io;
+  }
+
+  emitToUser(userId, event, data) {
+    if (this.io && userId) {
+      this.io.to(`user_${userId}`).emit(event, data);
+    }
+  }
+
+  emitToAll(event, data) {
+    if (this.io) {
+      this.io.emit(event, data);
+    }
+  }
+}
+
+const socketServiceInstance = new SocketService();
+module.exports = socketServiceInstance;

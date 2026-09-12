@@ -6,7 +6,6 @@ import {
   Clock, 
   Users, 
   FileText, 
-  Zap, 
   LogOut, 
   X, 
   MessageSquare 
@@ -26,7 +25,7 @@ export const menuItems = [
   ]}
 ];
 
-export default function Sidebar({ activeTab, setActiveTab, isOpen, onClose, waStatus, totalContacts = 248 }) {
+export default function Sidebar({ activeTab, setActiveTab, isOpen, onClose, waStatus, totalContacts = 0 }) {
   const { logout, user } = useAuth();
   const isConnected = waStatus?.status === 'CONNECTED';
 
@@ -35,7 +34,7 @@ export default function Sidebar({ activeTab, setActiveTab, isOpen, onClose, waSt
     if (onClose) onClose();
   };
 
-  const displayName = user?.name || 'Fatur Rahman';
+  const displayName = user?.name || user?.email || 'Pengguna';
   const displayInitial = displayName.charAt(0).toUpperCase();
 
   const content = (
@@ -99,10 +98,6 @@ export default function Sidebar({ activeTab, setActiveTab, isOpen, onClose, waSt
                         <span className="w-2 h-2 rounded-full bg-blue-600"></span>
                       )}
 
-                      {!isActive && item.hasTriggerDot && (
-                        <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                      )}
-
                       {item.showWaBadge && (
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
                           isConnected 
@@ -137,7 +132,7 @@ export default function Sidebar({ activeTab, setActiveTab, isOpen, onClose, waSt
               <p className="text-xs font-bold text-slate-800 truncate leading-tight">{displayName}</p>
               <div className="flex items-center space-x-1 mt-0.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                <span className="text-[10px] text-slate-500 font-medium">Super Admin</span>
+                <span className="text-[10px] text-slate-500 font-medium">Pengguna Aktif</span>
               </div>
             </div>
           </div>

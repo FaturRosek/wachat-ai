@@ -153,7 +153,7 @@ class WhatsappService {
 
     const sessionState = {
       sock: null,
-      status: cleanPairingPhone ? "CONNECTING" : "CONNECTING",
+      status: "CONNECTING",
       qr: null,
       qrImage: null,
       pairingPhone: cleanPairingPhone,
@@ -292,13 +292,12 @@ class WhatsappService {
 
       if (connection === "close") {
         const statusCode = lastDisconnect?.error?.output?.statusCode;
-        const errMsg = lastDisconnect?.error?.message || "unknown";
 
         if (
           statusCode === DisconnectReason.loggedOut ||
           statusCode === DisconnectReason.forbidden
         ) {
-          await this._cleanupSession(userId, sessionName, key, sessionDir, sessionState);
+          await this.disconnectSession(userId, sessionName);
           return;
         }
 
@@ -384,7 +383,7 @@ class WhatsappService {
         }
 
         if (statusCode === DisconnectReason.connectionReplaced) {
-          await this._cleanupSession(userId, sessionName, key, sessionDir, sessionState);
+          await this.disconnectSession(userId, sessionName);
           return;
         }
 
@@ -532,22 +531,9 @@ class WhatsappService {
     };
   }
 
-  async _cleanupSession(userId, sessionName, key, sessionDir, sessionState) {
-    await this.disconnectSession(userId, sessionName);
-  }
-
   async getSessionStatus(userId, sessionName = "default") {
     const key = this.getSessionKey(userId, sessionName);
-    let sessionState = this.sessions.get(key);
-
-    if (!sessionState) {
-      for (const [sKey, sState] of this.sessions.entries()) {
-        if (sState && sState.sock && !sState.destroyed) {
-          sessionState = sState;
-          break;
-        }
-      }
-    }
+    const sessionState = this.sessions.get(key);
 
     const dbSession = await WhatsappSessionModel.getByUserId(
       userId,
@@ -580,7 +566,7 @@ class WhatsappService {
             : dbSession?.phone_number || null;
 
           this.initSession(userId, sessionName).catch((err) => {
-            console.error(`[WhatsApp] Auto-init failed:`, err.message);
+            console.error(`[WhatsApp - ${userId}] Auto-init failed:`, err.message);
           });
 
           return {
@@ -633,7 +619,10 @@ class WhatsappService {
   }
 
   async disconnectSession(userId, sessionName = "default") {
-    for (const [key, sessionState] of this.sessions.entries()) {
+    const key = this.getSessionKey(userId, sessionName);
+    const sessionState = this.sessions.get(key);
+
+    if (sessionState) {
       sessionState.destroyed = true;
       sessionState.status = "DISCONNECTED";
       sessionState.pairingCode = null;
@@ -651,30 +640,28 @@ class WhatsappService {
           sessionState.sock.end(new Error("Manual user disconnect"));
         } catch (e) {}
       }
+      this.sessions.delete(key);
     }
-    this.sessions.clear();
 
+    const sessionDir = path.join(SESSIONS_BASE_DIR, `${userId}_${sessionName}`);
     try {
-      if (fs.existsSync(SESSIONS_BASE_DIR)) {
-        const dirs = fs.readdirSync(SESSIONS_BASE_DIR, { withFileTypes: true });
-        for (const dir of dirs) {
-          const dirPath = path.join(SESSIONS_BASE_DIR, dir.name);
-          try {
-            const credPath = path.join(dirPath, "creds.json");
-            if (fs.existsSync(credPath)) {
-              try {
-                fs.writeFileSync(credPath, JSON.stringify({ registered: false }), "utf8");
-              } catch (e) {}
-            }
-            fs.rmSync(dirPath, { recursive: true, force: true });
-          } catch (delErr) {}
-        }
+      if (fs.existsSync(sessionDir)) {
+        fs.rmSync(sessionDir, { recursive: true, force: true });
       }
-    } catch (e) {}
+    } catch (delErr) {
+      console.error(`[WhatsApp - ${userId}] Error removing session dir:`, delErr.message);
+    }
 
     try {
-      await WhatsappSessionModel.disconnectAll();
-    } catch (dbErr) {}
+      await WhatsappSessionModel.updateStatus(userId, "DISCONNECTED", {
+        phoneNumber: null,
+        qrCode: null,
+        sessionData: null,
+        sessionName,
+      });
+    } catch (dbErr) {
+      console.error(`[WhatsApp - ${userId}] Error updating session status to DISCONNECTED:`, dbErr.message);
+    }
 
     return {
       status: "DISCONNECTED",
@@ -683,26 +670,15 @@ class WhatsappService {
   }
 
   async getGroups(userId, sessionName = "default") {
-    let sock = null;
     const key = this.getSessionKey(userId, sessionName);
     const session = this.sessions.get(key);
-    if (session && session.status === "CONNECTED" && session.sock) {
-      sock = session.sock;
-    } else {
-      for (const [sKey, sState] of this.sessions.entries()) {
-        if (sState.status === "CONNECTED" && sState.sock) {
-          sock = sState.sock;
-          break;
-        }
-      }
-    }
 
-    if (!sock) {
-      throw new Error("WhatsApp bot belum terhubung (CONNECTED).");
+    if (!session || session.status !== "CONNECTED" || !session.sock) {
+      throw new Error("WhatsApp Anda belum terhubung. Silakan hubungkan nomor WhatsApp Anda terlebih dahulu.");
     }
 
     try {
-      const groupsMap = await sock.groupFetchAllParticipating();
+      const groupsMap = await session.sock.groupFetchAllParticipating();
       const groups = Object.values(groupsMap).map((g) => ({
         id: g.id,
         subject: g.subject || "Grup WhatsApp",
@@ -751,19 +727,10 @@ class WhatsappService {
     }
 
     const key = this.getSessionKey(userId, sessionName);
-    let sessionState = this.sessions.get(key);
+    const sessionState = this.sessions.get(key);
 
     if (!sessionState || !sessionState.sock || sessionState.status !== "CONNECTED") {
-      for (const [sKey, sState] of this.sessions.entries()) {
-        if (sState.status === "CONNECTED" && sState.sock) {
-          sessionState = sState;
-          break;
-        }
-      }
-    }
-
-    if (!sessionState || !sessionState.sock || sessionState.status !== "CONNECTED") {
-      const error = new Error("WhatsApp session is not connected. Please connect WhatsApp first.");
+      const error = new Error("WhatsApp Anda belum terhubung. Silakan hubungkan nomor WhatsApp Anda terlebih dahulu.");
       error.statusCode = 400;
       throw error;
     }
@@ -859,7 +826,7 @@ class WhatsappService {
       }
     }
 
-    if (!activeSock) {
+    if (!activeSock && !userId) {
       for (const [key, session] of this.sessions.entries()) {
         if (session.status === "CONNECTED" && session.sock) {
           activeSock = session.sock;
@@ -870,7 +837,7 @@ class WhatsappService {
     }
 
     if (!activeSock) {
-      throw new Error("WhatsApp Bot belum terhubung (CONNECTED).");
+      throw new Error("WhatsApp Bot untuk akun ini belum terhubung (CONNECTED).");
     }
 
     if (!activeUserId) {

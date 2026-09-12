@@ -10,13 +10,14 @@ import MessageComposerPage from './pages/MessageComposerPage';
 import HistoryPage from './pages/HistoryPage';
 import ContactsPage from './pages/ContactsPage';
 import TemplatesPage from './pages/TemplatesPage';
-import { LayoutGrid, Smartphone, Send, Clock, Menu, Zap } from 'lucide-react';
+import { LayoutGrid, Smartphone, Send, Clock, Menu } from 'lucide-react';
 
 function DashboardLayout() {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [waStatus, setWaStatus] = useState(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [contactCount, setContactCount] = useState(248);
+  const [contactCount, setContactCount] = useState(0);
 
   const fetchWaStatus = async () => {
     try {
@@ -24,24 +25,30 @@ function DashboardLayout() {
       if (res.data.success && res.data.data) {
         setWaStatus(res.data.data);
       }
-    } catch (err) {}
+    } catch (err) {
+      setWaStatus({ status: 'DISCONNECTED', phoneNumber: null });
+    }
   };
 
   const fetchContactsCount = async () => {
     try {
       const res = await apiClient.get('/contacts?limit=1');
       if (res.data.success && res.data.data?.total !== undefined) {
-        setContactCount(res.data.data.total > 0 ? res.data.data.total : 248);
+        setContactCount(res.data.data.total);
       }
-    } catch (err) {}
+    } catch (err) {
+      setContactCount(0);
+    }
   };
 
   useEffect(() => {
+    setWaStatus(null);
+    setContactCount(0);
     fetchWaStatus();
     fetchContactsCount();
     const interval = setInterval(fetchWaStatus, 3000);
     return () => clearInterval(interval);
-  }, []);
+  }, [user?.id]);
 
   return (
     <div className="flex min-h-screen bg-[#f4f7fb] text-slate-800 relative antialiased selection:bg-blue-100 selection:text-blue-700">
@@ -81,9 +88,6 @@ function DashboardLayout() {
           )}
           {activeTab === 'templates' && (
             <TemplatesPage setActiveTab={setActiveTab} />
-          )}
-          {activeTab === 'ai-trigger' && (
-            <AiDirectTriggerPage />
           )}
         </main>
 
@@ -128,15 +132,15 @@ function DashboardLayout() {
           </button>
 
           <button
-            onClick={() => setActiveTab('ai-trigger')}
+            onClick={() => setActiveTab('history')}
             className={`flex flex-col items-center justify-center py-1.5 px-2 rounded-xl text-[10px] font-bold transition ${
-              activeTab === 'ai-trigger'
+              activeTab === 'history'
                 ? 'text-blue-600 bg-blue-50'
                 : 'text-slate-500 hover:text-slate-800'
             }`}
           >
-            <Zap className="w-4 h-4 mb-0.5" />
-            <span>AI Trigger</span>
+            <Clock className="w-4 h-4 mb-0.5" />
+            <span>Riwayat</span>
           </button>
 
           <button

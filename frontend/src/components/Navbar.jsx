@@ -8,7 +8,7 @@ export default function Navbar({ waStatus, onRefreshStatus, onToggleMobileMenu, 
   const isPairing = waStatus?.status === 'PAIRING_CODE';
 
   const formatPhone = (num) => {
-    if (!num) return '+62 877-2883-8649';
+    if (!num) return '';
     const clean = String(num).replace(/[^0-9]/g, '');
     if (clean.startsWith('62') && clean.length >= 10) {
       return `+62 ${clean.slice(2, 5)}-${clean.slice(5, 9)}-${clean.slice(9)}`;
@@ -61,7 +61,7 @@ export default function Navbar({ waStatus, onRefreshStatus, onToggleMobileMenu, 
           <div className="text-xs font-semibold text-slate-700 flex items-center space-x-1">
             <span className="text-slate-500 font-normal">WhatsApp:</span>
             {isConnected ? (
-              <span className="text-slate-900 font-bold">{formattedPhone}</span>
+              <span className="text-slate-900 font-bold">{formattedPhone || 'Terhubung'}</span>
             ) : isPairing ? (
               <span className="text-blue-600 font-semibold">Pairing Aktif</span>
             ) : isScan ? (

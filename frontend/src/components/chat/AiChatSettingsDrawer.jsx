@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Bot, Sparkles, FileText, Check, ShieldAlert, Zap, Send, Phone, User, Settings2 } from 'lucide-react';
+import { X, Bot, Sparkles, FileText, Check, ShieldAlert, Zap, Send, Phone, User, Settings2, MessageSquare } from 'lucide-react';
 import apiClient from '../../api/apiClient';
 
 const PRESET_PERSONAS = [
@@ -25,6 +25,25 @@ const PRESET_PERSONAS = [
   },
 ];
 
+const STATIC_PRESETS = [
+  {
+    name: 'Sedang di Luar / Sibuk',
+    text: 'Bentar yaa, ini pesan otomatis. Aku lagi di luar / ada urusan, nanti aku kabarin lagi yaa 🙏',
+  },
+  {
+    name: 'Toko Tutup / Jam Operasional',
+    text: 'Halo kak! Toko kami saat ini sedang tutup (Jam operasional 09:00 - 20:00). Pesan Anda akan kami balas saat toko buka kembali. Terima kasih! 😊',
+  },
+  {
+    name: 'Pesan Diterima (Standar)',
+    text: 'Halo! Pesan Anda sudah kami terima. Mohon tunggu sebentar, kami akan segera merespons.',
+  },
+  {
+    name: 'Istirahat / Sholat',
+    text: 'Mohon maaf saat ini sedang istirahat sejenak. Pesan akan segera dibalas secepatnya.',
+  },
+];
+
 export default function AiChatSettingsDrawer({
   isOpen,
   onClose,
@@ -33,6 +52,8 @@ export default function AiChatSettingsDrawer({
   onUpdateAiSetting,
 }) {
   const [autoReplyEnabled, setAutoReplyEnabled] = useState(false);
+  const [replyMode, setReplyMode] = useState('ai');
+  const [staticReplyText, setStaticReplyText] = useState('');
   const [customPrompt, setCustomPrompt] = useState('');
   const [tone, setTone] = useState('friendly');
   const [notes, setNotes] = useState('');
@@ -44,11 +65,15 @@ export default function AiChatSettingsDrawer({
   useEffect(() => {
     if (aiSetting) {
       setAutoReplyEnabled(!!aiSetting.auto_reply_enabled);
+      setReplyMode(aiSetting.reply_mode || 'ai');
+      setStaticReplyText(aiSetting.static_reply_text || '');
       setCustomPrompt(aiSetting.custom_prompt || '');
       setTone(aiSetting.tone || 'friendly');
       setNotes(aiSetting.notes || '');
     } else {
       setAutoReplyEnabled(false);
+      setReplyMode('ai');
+      setStaticReplyText('');
       setCustomPrompt('');
       setTone('friendly');
       setNotes('');
@@ -64,6 +89,8 @@ export default function AiChatSettingsDrawer({
     try {
       const res = await apiClient.put(`/chats/${encodeURIComponent(activeContact.jid)}/ai-setting`, {
         autoReplyEnabled,
+        replyMode,
+        staticReplyText,
         customPrompt,
         tone,
         notes,
@@ -124,8 +151,8 @@ export default function AiChatSettingsDrawer({
             <Bot className="w-4 h-4" />
           </div>
           <div>
-            <h3 className="font-bold text-sm text-slate-900 dark:text-white">Info Kontak & Otomasi AI</h3>
-            <p className="text-[11px] text-slate-400">Pengaturan persona & balasan otomatis</p>
+            <h3 className="font-bold text-sm text-slate-900 dark:text-white">Info Kontak & Otomasi Chat</h3>
+            <p className="text-[11px] text-slate-400">Pengaturan balasan otomatis & catatan</p>
           </div>
         </div>
         <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#111b21] rounded-xl transition">
@@ -159,7 +186,7 @@ export default function AiChatSettingsDrawer({
                 <Zap className="w-4 h-4" />
               </div>
               <div>
-                <h5 className="text-xs font-bold text-slate-800 dark:text-white">Auto-Reply AI</h5>
+                <h5 className="text-xs font-bold text-slate-800 dark:text-white">Auto-Reply Otomatis</h5>
                 <p className="text-[10px] text-slate-500 dark:text-slate-400">Balas chat kontak ini secara otomatis</p>
               </div>
             </div>
@@ -177,64 +204,142 @@ export default function AiChatSettingsDrawer({
           {autoReplyEnabled && (
             <div className="mt-3 pt-3 border-t border-blue-200/60 dark:border-blue-900/50 flex items-center gap-1.5 text-[11px] text-blue-800 dark:text-blue-300 font-medium">
               <Sparkles className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-              <span>AI aktif menjawab pesan masuk kontak ini 24/7.</span>
+              <span>
+                {replyMode === 'static'
+                  ? 'Pesan tetap aktif membalas setiap chat masuk 24/7.'
+                  : 'AI aktif menjawab pesan masuk kontak ini 24/7.'}
+              </span>
             </div>
           )}
         </div>
 
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <label className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-              <Settings2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-              Instruksi AI (Persona Prompt)
-            </label>
-          </div>
-
-          <div className="grid grid-cols-2 gap-1.5">
-            {PRESET_PERSONAS.map((p, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => applyPreset(p)}
-                className="text-left p-2 rounded-xl border border-slate-200 dark:border-[#2a3942] hover:border-blue-500 dark:hover:border-blue-500 hover:bg-blue-50/50 dark:hover:bg-blue-950/40 text-[10px] font-medium text-slate-700 dark:text-slate-300 transition"
-              >
-                {p.name}
-              </button>
-            ))}
-          </div>
-
-          <textarea
-            value={customPrompt}
-            onChange={(e) => setCustomPrompt(e.target.value)}
-            rows={3}
-            placeholder="Contoh: Jawab ramah dan jelaskan bahwa toko buka jam 09:00 - 21:00..."
-            className="w-full bg-slate-50 dark:bg-[#202c33] border border-slate-200 dark:border-[#2a3942] rounded-xl p-2.5 text-xs text-slate-800 dark:text-slate-100 focus:bg-white dark:focus:bg-[#111b21] focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 resize-none font-sans"
-          />
-
           <div>
-            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1.5">Gaya Bahasa (Tone):</label>
-            <div className="grid grid-cols-4 gap-1">
-              {[
-                { id: 'friendly', label: 'Ramah 😊' },
-                { id: 'formal', label: 'Formal 👔' },
-                { id: 'persuasive', label: 'Sales 🚀' },
-                { id: 'short', label: 'Singkat ⚡' },
-              ].map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setTone(t.id)}
-                  className={`py-1.5 rounded-lg text-[10px] font-bold transition ${
-                    tone === t.id
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'bg-slate-100 dark:bg-[#202c33] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-[#2a3942]'
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider mb-2">
+              Pilih Jenis Balasan Otomatis:
+            </label>
+            <div className="grid grid-cols-2 bg-slate-100 dark:bg-[#202c33] p-1 rounded-xl border border-slate-200/80 dark:border-[#2a3942]">
+              <button
+                type="button"
+                onClick={() => setReplyMode('ai')}
+                className={`py-2 px-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition ${
+                  replyMode === 'ai'
+                    ? 'bg-white dark:bg-[#111b21] text-blue-600 dark:text-blue-400 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                }`}
+              >
+                <Bot className="w-3.5 h-3.5" />
+                <span>Balasan AI Pintar</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setReplyMode('static')}
+                className={`py-2 px-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition ${
+                  replyMode === 'static'
+                    ? 'bg-white dark:bg-[#111b21] text-blue-600 dark:text-blue-400 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                }`}
+              >
+                <MessageSquare className="w-3.5 h-3.5" />
+                <span>Pesan Balasan Tetap</span>
+              </button>
             </div>
           </div>
+
+          {replyMode === 'static' ? (
+            <div className="space-y-3 animate-fade-in">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1.5">
+                  Template Pesan Balasan Cepat:
+                </label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {STATIC_PRESETS.map((p, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setStaticReplyText(p.text)}
+                      className="text-left p-2 rounded-xl border border-slate-200 dark:border-[#2a3942] hover:border-blue-500 dark:hover:border-blue-500 hover:bg-blue-50/50 dark:hover:bg-blue-950/40 text-[10px] font-medium text-slate-700 dark:text-slate-300 transition"
+                      title={p.text}
+                    >
+                      <p className="font-bold truncate">{p.name}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                  <Send className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                  Teks Pesan Balasan Tetap *
+                </label>
+                <textarea
+                  value={staticReplyText}
+                  onChange={(e) => setStaticReplyText(e.target.value)}
+                  rows={4}
+                  placeholder="Contoh: Bentar yaa sayang, ini bot yang bales aku lagi diluar..."
+                  className="w-full bg-slate-50 dark:bg-[#202c33] border border-slate-200 dark:border-[#2a3942] rounded-xl p-3 text-xs text-slate-800 dark:text-slate-100 focus:bg-white dark:focus:bg-[#111b21] focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 resize-none font-sans leading-relaxed"
+                />
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1 leading-normal">
+                  Saat ada chat masuk dari kontak ini, sistem akan langsung membalas dengan pesan tetap di atas tanpa proses AI.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3 animate-fade-in">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                  <Settings2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                  Instruksi AI (Persona Prompt)
+                </label>
+              </div>
+
+              <div className="grid grid-cols-2 gap-1.5">
+                {PRESET_PERSONAS.map((p, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => applyPreset(p)}
+                    className="text-left p-2 rounded-xl border border-slate-200 dark:border-[#2a3942] hover:border-blue-500 dark:hover:border-blue-500 hover:bg-blue-50/50 dark:hover:bg-blue-950/40 text-[10px] font-medium text-slate-700 dark:text-slate-300 transition"
+                  >
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+
+              <textarea
+                value={customPrompt}
+                onChange={(e) => setCustomPrompt(e.target.value)}
+                rows={3}
+                placeholder="Contoh: Jawab ramah dan jelaskan bahwa toko buka jam 09:00 - 21:00..."
+                className="w-full bg-slate-50 dark:bg-[#202c33] border border-slate-200 dark:border-[#2a3942] rounded-xl p-2.5 text-xs text-slate-800 dark:text-slate-100 focus:bg-white dark:focus:bg-[#111b21] focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 resize-none font-sans"
+              />
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1.5">Gaya Bahasa (Tone):</label>
+                <div className="grid grid-cols-4 gap-1">
+                  {[
+                    { id: 'friendly', label: 'Ramah 😊' },
+                    { id: 'formal', label: 'Formal 👔' },
+                    { id: 'persuasive', label: 'Sales 🚀' },
+                    { id: 'short', label: 'Singkat ⚡' },
+                  ].map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setTone(t.id)}
+                      className={`py-1.5 rounded-lg text-[10px] font-bold transition ${
+                        tone === t.id
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'bg-slate-100 dark:bg-[#202c33] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-[#2a3942]'
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="p-3.5 bg-slate-50 dark:bg-[#202c33]/60 border border-slate-200 dark:border-[#2a3942] rounded-2xl space-y-2">
@@ -287,7 +392,7 @@ export default function AiChatSettingsDrawer({
           ) : saving ? (
             'Menyimpan...'
           ) : (
-            'Simpan Pengaturan AI'
+            'Simpan Pengaturan'
           )}
         </button>
       </div>

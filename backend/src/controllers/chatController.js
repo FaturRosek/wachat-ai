@@ -145,6 +145,8 @@ const ChatController = {
         data: setting || {
           jid,
           auto_reply_enabled: false,
+          reply_mode: 'ai',
+          static_reply_text: '',
           custom_prompt: '',
           tone: 'friendly',
           notes: ''
@@ -158,10 +160,12 @@ const ChatController = {
   async updateAiSetting(req, res, next) {
     try {
       const { jid } = req.params;
-      const { autoReplyEnabled, customPrompt, tone = 'friendly', notes = '' } = req.body;
+      const { autoReplyEnabled, replyMode = 'ai', staticReplyText = null, customPrompt = '', tone = 'friendly', notes = '' } = req.body;
 
       const updated = await ChatAiSettingModel.upsert(req.user.id, jid, {
         autoReplyEnabled: !!autoReplyEnabled,
+        replyMode,
+        staticReplyText: staticReplyText ? staticReplyText.trim() : null,
         customPrompt,
         tone,
         notes
@@ -169,7 +173,7 @@ const ChatController = {
 
       res.status(200).json({
         success: true,
-        message: 'Pengaturan AI Chat berhasil disimpan!',
+        message: 'Pengaturan Auto-Reply & AI Chat berhasil disimpan!',
         data: updated
       });
     } catch (error) {

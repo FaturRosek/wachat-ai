@@ -51,9 +51,17 @@ export default function WaWebChatPage({ waStatus }) {
   const [syncing, setSyncing] = useState(false);
 
   const [typingMap, setTypingMap] = useState({});
+  const typingTimeoutsRef = useRef({});
 
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      Object.values(typingTimeoutsRef.current).forEach((t) => clearTimeout(t));
+      typingTimeoutsRef.current = {};
+    };
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -128,6 +136,26 @@ export default function WaWebChatPage({ waStatus }) {
     });
 
     const unsubMsg = onEvent('message_new', ({ message, contact, remoteJid }) => {
+      const targetJid = remoteJid || message?.remote_jid;
+      const cleanPhone = targetJid ? targetJid.replace(/[^0-9]/g, '') : null;
+
+      if (targetJid && typingTimeoutsRef.current[targetJid]) {
+        clearTimeout(typingTimeoutsRef.current[targetJid]);
+        delete typingTimeoutsRef.current[targetJid];
+      }
+      if (cleanPhone && typingTimeoutsRef.current[cleanPhone]) {
+        clearTimeout(typingTimeoutsRef.current[cleanPhone]);
+        delete typingTimeoutsRef.current[cleanPhone];
+      }
+
+      if (targetJid || cleanPhone) {
+        setTypingMap((prev) => ({
+          ...prev,
+          ...(targetJid ? { [targetJid]: false } : {}),
+          ...(cleanPhone ? { [cleanPhone]: false } : {}),
+        }));
+      }
+
       if (activeChat && (activeChat.jid === remoteJid || activeChat.phone === remoteJid.replace(/[^0-9]/g, ''))) {
         setMessages((prev) => {
           if (prev.some((m) => (message.id && m.id === message.id) || (message.message_id && m.message_id === message.message_id))) {
@@ -173,10 +201,53 @@ export default function WaWebChatPage({ waStatus }) {
     });
 
     const unsubPresence = onEvent('presence_update', ({ jid, isTyping, presences }) => {
-      setTypingMap((prev) => ({
-        ...prev,
-        [jid]: isTyping || (presences && Object.values(presences).some((p) => p.lastKnownPresence === 'composing')),
-      }));
+      if (!jid) return;
+      const cleanPhone = jid.replace(/[^0-9]/g, '');
+
+      let isComposing = false;
+      if (typeof isTyping === 'boolean') {
+        isComposing = isTyping;
+      } else if (presences && typeof presences === 'object') {
+        isComposing = Object.values(presences).some(
+          (p) => p && (p.lastKnownPresence === 'composing' || p.lastKnownPresence === 'recording')
+        );
+      }
+
+      if (typingTimeoutsRef.current[jid]) {
+        clearTimeout(typingTimeoutsRef.current[jid]);
+        delete typingTimeoutsRef.current[jid];
+      }
+      if (cleanPhone && typingTimeoutsRef.current[cleanPhone]) {
+        clearTimeout(typingTimeoutsRef.current[cleanPhone]);
+        delete typingTimeoutsRef.current[cleanPhone];
+      }
+
+      if (isComposing) {
+        setTypingMap((prev) => ({
+          ...prev,
+          [jid]: true,
+          ...(cleanPhone ? { [cleanPhone]: true } : {}),
+        }));
+
+        const timer = setTimeout(() => {
+          setTypingMap((prev) => ({
+            ...prev,
+            [jid]: false,
+            ...(cleanPhone ? { [cleanPhone]: false } : {}),
+          }));
+          delete typingTimeoutsRef.current[jid];
+          if (cleanPhone) delete typingTimeoutsRef.current[cleanPhone];
+        }, 4000);
+
+        typingTimeoutsRef.current[jid] = timer;
+        if (cleanPhone) typingTimeoutsRef.current[cleanPhone] = timer;
+      } else {
+        setTypingMap((prev) => ({
+          ...prev,
+          [jid]: false,
+          ...(cleanPhone ? { [cleanPhone]: false } : {}),
+        }));
+      }
     });
 
     return () => {
@@ -447,7 +518,7 @@ export default function WaWebChatPage({ waStatus }) {
           ) : (
             chats.map((chat) => {
               const isSelected = activeChat?.jid === chat.jid || (activeChat?.phone && activeChat.phone === chat.phone);
-              const isTyping = typingMap[chat.jid];
+              const isTyping = !!(typingMap[chat.jid] || (chat.phone && typingMap[chat.phone]) || (chat.jid && typingMap[chat.jid.replace(/[^0-9]/g, '')]));
               const hasUnread = (chat.unread_count || 0) > 0;
               return (
                 <div
@@ -565,7 +636,7 @@ export default function WaWebChatPage({ waStatus }) {
                     {activeChat.name || `+${activeChat.phone}`}
                   </h3>
                   <p className="text-[11px] text-slate-400 truncate flex items-center gap-1.5">
-                    {typingMap[activeChat.jid] ? (
+                    {typingMap[activeChat.jid] || (activeChat.phone && typingMap[activeChat.phone]) || (activeChat.jid && typingMap[activeChat.jid.replace(/[^0-9]/g, '')]) ? (
                       <span className="text-blue-600 dark:text-blue-400 font-bold animate-pulse">sedang mengetik...</span>
                     ) : isConnected ? (
                       <span className="flex items-center gap-1 text-slate-500 dark:text-slate-400 font-medium">

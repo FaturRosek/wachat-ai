@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS chat_ai_settings (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     jid VARCHAR(255) NOT NULL,
     auto_reply_enabled BOOLEAN DEFAULT false,
+    reply_mode VARCHAR(50) DEFAULT 'ai',
+    static_reply_text TEXT,
     custom_prompt TEXT,
     tone VARCHAR(50) DEFAULT 'friendly',
     notes TEXT,

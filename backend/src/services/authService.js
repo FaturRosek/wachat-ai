@@ -1,12 +1,13 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const UserModel = require('../models/userModel');
+const { JWT_SECRET, JWT_EXPIRES_IN } = require('../config/jwt');
 
 const generateToken = (user) => {
   return jwt.sign(
     { id: user.id, email: user.email },
-    process.env.JWT_SECRET || 'wachat_jwt_secret_fallback',
-    { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+    JWT_SECRET,
+    { expiresIn: JWT_EXPIRES_IN }
   );
 };
 

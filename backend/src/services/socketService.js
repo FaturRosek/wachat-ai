@@ -1,5 +1,6 @@
 const { Server } = require("socket.io");
 const jwt = require("jsonwebtoken");
+const { JWT_SECRET } = require("../config/jwt");
 
 class SocketService {
   constructor() {
@@ -7,9 +8,13 @@ class SocketService {
   }
 
   init(httpServer) {
+    const allowedOrigins = process.env.CLIENT_URL
+      ? process.env.CLIENT_URL.split(",")
+      : ["http://localhost:5173", "http://localhost:3000"];
+
     this.io = new Server(httpServer, {
       cors: {
-        origin: process.env.CLIENT_URL ? process.env.CLIENT_URL.split(",") : "*",
+        origin: allowedOrigins,
         methods: ["GET", "POST"],
         credentials: true,
       },
@@ -24,7 +29,7 @@ class SocketService {
       }
 
       try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || "default_jwt_secret_key");
+        const decoded = jwt.verify(token, JWT_SECRET);
         socket.user = decoded;
         next();
       } catch (err) {

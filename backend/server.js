@@ -11,6 +11,8 @@ const { testConnection } = require("./src/config/database");
 const { testRedisConnection } = require("./src/config/redis");
 const socketService = require("./src/services/socketService");
 
+const { globalLimiter } = require("./src/middleware/rateLimiter");
+
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
@@ -18,22 +20,35 @@ const PORT = process.env.PORT || 5000;
 socketService.init(server);
 
 app.use(helmet());
+
+const allowedOrigins = process.env.CLIENT_URL
+  ? process.env.CLIENT_URL.split(",").map((o) => o.trim())
+  : ["http://localhost:5173", "http://localhost:3000"];
+
 app.use(
   cors({
-    origin: process.env.CLIENT_URL ? process.env.CLIENT_URL.split(",") : "*",
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes("*")) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS blocked for origin: ${origin}`));
+      }
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   }),
 );
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+
+app.use(express.json({ limit: "5mb" }));
+app.use(express.urlencoded({ limit: "5mb", extended: true }));
 
 if (process.env.NODE_ENV === "development") {
   app.use(morgan("dev"));
 }
 
-app.use("/api", apiRoutes);
+app.use("/api", globalLimiter, apiRoutes);
 
 app.get("/", (req, res) => {
   res.json({

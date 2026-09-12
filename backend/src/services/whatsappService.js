@@ -562,8 +562,13 @@ class WhatsappService {
     });
 
     sock.ev.on("presence.update", ({ id, presences }) => {
+      let cleanJid = id;
+      if (id && id.endsWith("@lid")) {
+        const resolved = this.resolveLidToPhone(userId, sessionName, id);
+        if (resolved?.jid) cleanJid = resolved.jid;
+      }
       socketService.emitToUser(userId, "presence_update", {
-        jid: id,
+        jid: cleanJid,
         presences,
       });
     });
@@ -946,13 +951,19 @@ class WhatsappService {
 
         const aiSetting = await ChatAiSettingModel.getByJid(userId, remoteJid);
         if (aiSetting && aiSetting.auto_reply_enabled) {
-          const chatContext = await MessageModel.getRecentChatContext(userId, remoteJid, 8);
-          const replyText = await aiService.generateAutoReply(
-            aiSetting.custom_prompt,
-            chatContext,
-            incomingText,
-            senderName || senderPhone
-          );
+          let replyText = null;
+
+          if (aiSetting.reply_mode === 'static' && aiSetting.static_reply_text && aiSetting.static_reply_text.trim()) {
+            replyText = aiSetting.static_reply_text.trim();
+          } else {
+            const chatContext = await MessageModel.getRecentChatContext(userId, remoteJid, 8);
+            replyText = await aiService.generateAutoReply(
+              aiSetting.custom_prompt,
+              chatContext,
+              incomingText,
+              senderName || senderPhone
+            );
+          }
 
           if (replyText) {
             await new Promise((r) => setTimeout(r, 1200));

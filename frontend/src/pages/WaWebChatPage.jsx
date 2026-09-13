@@ -28,6 +28,8 @@ import apiClient from '../api/apiClient';
 import { useSocket } from '../context/SocketContext';
 import AiChatSettingsDrawer from '../components/chat/AiChatSettingsDrawer';
 import NewChatModal from '../components/chat/NewChatModal';
+import WhatsAppAudioPlayer from '../components/chat/WhatsAppAudioPlayer';
+import VoiceNoteRecorder from '../components/chat/VoiceNoteRecorder';
 
 export default function WaWebChatPage({ waStatus }) {
   const { onEvent } = useSocket();
@@ -41,6 +43,7 @@ export default function WaWebChatPage({ waStatus }) {
   const [sending, setSending] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterTab, setFilterTab] = useState('all');
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
 
   const [aiSuggestions, setAiSuggestions] = useState([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
@@ -210,6 +213,17 @@ export default function WaWebChatPage({ waStatus }) {
           if (prev.some((m) => (message.id && m.id === message.id) || (message.message_id && m.message_id === message.message_id))) {
             return prev;
           }
+          const pendingIndex = prev.findIndex(
+            (m) =>
+              String(m.id).startsWith('temp_') &&
+              (m.from_me || m.direction === 'OUTGOING') &&
+              ((m.content === message.content) || (m.media_type && m.media_type === message.media_type))
+          );
+          if (pendingIndex !== -1) {
+            const next = [...prev];
+            next[pendingIndex] = message;
+            return next;
+          }
           return [...prev, message];
         });
         scrollToBottom();
@@ -299,6 +313,18 @@ export default function WaWebChatPage({ waStatus }) {
       }
     });
 
+    const unsubAvatarUpdate = onEvent('chat_avatar_update', ({ jid, avatarUrl }) => {
+      setChats((prev) =>
+        prev.map((c) => (c.jid === jid || c.phone === jid.replace(/[^0-9]/g, '') ? { ...c, avatar_url: avatarUrl } : c))
+      );
+      setActiveChat((prev) => {
+        if (prev && (prev.jid === jid || prev.phone === jid.replace(/[^0-9]/g, ''))) {
+          return { ...prev, avatar_url: avatarUrl };
+        }
+        return prev;
+      });
+    });
+
     return () => {
       unsubSync();
       unsubChatSync();
@@ -309,6 +335,7 @@ export default function WaWebChatPage({ waStatus }) {
       unsubMsg();
       unsubStatus();
       unsubPresence();
+      unsubAvatarUpdate();
     };
   }, [activeChat, onEvent]);
 
@@ -321,6 +348,9 @@ export default function WaWebChatPage({ waStatus }) {
       if (res.data.success && res.data.data) {
         setMessages(res.data.data.messages || []);
         setActiveAiSetting(res.data.data.aiSetting || null);
+        if (res.data.data.contact) {
+          setActiveChat((prev) => ({ ...prev, ...res.data.data.contact }));
+        }
 
         setChats((prev) =>
           prev.map((c) =>
@@ -360,8 +390,9 @@ export default function WaWebChatPage({ waStatus }) {
     setInputText('');
     setSending(true);
 
+    const tempId = 'temp_' + Date.now();
     const tempMessage = {
-      id: 'temp_' + Date.now(),
+      id: tempId,
       phone: activeChat.phone,
       remote_jid: activeChat.jid,
       content: messageText,
@@ -381,20 +412,84 @@ export default function WaWebChatPage({ waStatus }) {
       });
 
       if (res.data.success && res.data.data) {
-        setMessages((prev) =>
-          prev.map((m) => (m.id === tempMessage.id ? res.data.data : m))
-        );
+        const saved = res.data.data;
+        setMessages((prev) => {
+          const exists = prev.some(
+            (m) => (m.id && m.id === saved.id) || (m.message_id && m.message_id === saved.message_id)
+          );
+          if (exists) {
+            return prev.filter((m) => m.id !== tempId);
+          }
+          return prev.map((m) => (m.id === tempId ? saved : m));
+        });
       }
     } catch (err) {
       console.error('Failed to send message:', err);
       setMessages((prev) =>
-        prev.map((m) => (m.id === tempMessage.id ? { ...m, status: 'FAILED' } : m))
+        prev.map((m) => (m.id === tempId ? { ...m, status: 'FAILED' } : m))
       );
     } finally {
       setSending(false);
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
       }
+    }
+  };
+
+  const handleSendVoiceNote = async (audioBlob) => {
+    if (!activeChat || !audioBlob) return;
+    setIsRecordingAudio(false);
+
+    const tempId = 'temp_vn_' + Date.now();
+    const localUrl = URL.createObjectURL(audioBlob);
+    const tempMessage = {
+      id: tempId,
+      phone: activeChat.phone,
+      remote_jid: activeChat.jid,
+      content: '🎤 Pesan Suara',
+      media_type: 'voice',
+      media_url: localUrl,
+      media_caption: 'Pesan Suara',
+      direction: 'OUTGOING',
+      status: 'PENDING',
+      from_me: true,
+      sent_at: new Date(),
+    };
+
+    setMessages((prev) => [...prev, tempMessage]);
+    scrollToBottom();
+
+    const formData = new FormData();
+    const ext = audioBlob.type.includes('webm') ? 'webm' : (audioBlob.type.includes('ogg') ? 'ogg' : 'mp4');
+    formData.append('audio', audioBlob, `voice_${Date.now()}.${ext}`);
+    formData.append('jid', activeChat.jid || activeChat.phone);
+
+    try {
+      const res = await apiClient.post('/chats/send-voice', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      if (res.data.success && res.data.data) {
+        const saved = res.data.data;
+        setMessages((prev) => {
+          const exists = prev.some(
+            (m) => (m.id && m.id === saved.id) || (m.message_id && m.message_id === saved.message_id)
+          );
+          if (exists) {
+            return prev.filter((m) => m.id !== tempId);
+          }
+          return prev.map((m) => (m.id === tempId ? saved : m));
+        });
+        setTimeout(scrollToBottom, 100);
+      }
+    } catch (err) {
+      console.error('Failed to send voice note:', err);
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempId ? { ...m, status: 'FAILED' } : m))
+      );
+      alert(err.response?.data?.message || 'Gagal mengirim Voice Note');
     }
   };
 
@@ -789,7 +884,18 @@ export default function WaWebChatPage({ waStatus }) {
                         </p>
                       )}
 
-                      <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                      {msg.media_type === 'voice' || msg.media_type === 'audio' || (msg.media_url && (msg.media_url.endsWith('.ogg') || msg.media_url.endsWith('.mp3') || msg.media_url.endsWith('.m4a') || msg.media_url.endsWith('.webm'))) ? (
+                        <WhatsAppAudioPlayer audioUrl={msg.media_url} isMe={isMe} senderAvatar={msg.sender_avatar} />
+                      ) : msg.media_type === 'image' && msg.media_url ? (
+                        <div className="mb-1 rounded-xl overflow-hidden max-w-xs">
+                          <img src={msg.media_url} alt="Foto" className="w-full h-auto object-cover max-h-60 rounded-xl" />
+                          {msg.content && msg.content !== '📷 Foto' && (
+                            <p className="whitespace-pre-wrap break-words mt-1">{msg.content}</p>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                      )}
 
                       <div
                         className={`flex items-center justify-end gap-1 mt-1 text-[9px] select-none ${
@@ -863,65 +969,75 @@ export default function WaWebChatPage({ waStatus }) {
           </div>
 
           <div className="p-3 bg-white dark:bg-[#202c33] border-t border-slate-200 dark:border-[#2a3942] flex items-center gap-2">
-            <button
-              type="button"
-              title="Lampiran"
-              className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#111b21] rounded-xl transition"
-            >
-              <Paperclip className="w-5 h-5" />
-            </button>
-
-            <button
-              type="button"
-              title="Emoji"
-              className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#111b21] rounded-xl transition"
-            >
-              <Smile className="w-5 h-5" />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleAiRewrite('friendly')}
-              disabled={rewriting || !inputText.trim()}
-              title="Poles Teks dengan AI"
-              className="p-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 rounded-xl transition disabled:opacity-40"
-            >
-              <Sparkles className={`w-5 h-5 ${rewriting ? 'animate-spin' : ''}`} />
-            </button>
-
-            <div className="flex-1 bg-slate-100 dark:bg-[#2a3942] rounded-xl px-3 py-2 flex items-center border border-slate-200 dark:border-[#374248] focus-within:bg-white dark:focus-within:bg-[#2a3942] focus-within:border-blue-500 transition">
-              <textarea
-                ref={textareaRef}
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendMessage();
-                  }
-                }}
-                rows={1}
-                placeholder="Ketik pesan"
-                className="flex-1 bg-transparent text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none resize-none max-h-32"
+            {isRecordingAudio ? (
+              <VoiceNoteRecorder
+                onSend={handleSendVoiceNote}
+                onCancel={() => setIsRecordingAudio(false)}
               />
-            </div>
-
-            {inputText.trim() ? (
-              <button
-                onClick={handleSendMessage}
-                disabled={sending}
-                className="p-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/30 transition active:scale-95 flex-shrink-0"
-              >
-                <Send className="w-4 h-4" />
-              </button>
             ) : (
-              <button
-                type="button"
-                title="Pesan Suara"
-                className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#111b21] rounded-xl transition flex-shrink-0"
-              >
-                <Mic className="w-5 h-5" />
-              </button>
+              <>
+                <button
+                  type="button"
+                  title="Lampiran"
+                  className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#111b21] rounded-xl transition"
+                >
+                  <Paperclip className="w-5 h-5" />
+                </button>
+
+                <button
+                  type="button"
+                  title="Emoji"
+                  className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#111b21] rounded-xl transition"
+                >
+                  <Smile className="w-5 h-5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleAiRewrite('friendly')}
+                  disabled={rewriting || !inputText.trim()}
+                  title="Poles Teks dengan AI"
+                  className="p-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 rounded-xl transition disabled:opacity-40"
+                >
+                  <Sparkles className={`w-5 h-5 ${rewriting ? 'animate-spin' : ''}`} />
+                </button>
+
+                <div className="flex-1 bg-slate-100 dark:bg-[#2a3942] rounded-xl px-3 py-2 flex items-center border border-slate-200 dark:border-[#374248] focus-within:bg-white dark:focus-within:bg-[#2a3942] focus-within:border-blue-500 transition">
+                  <textarea
+                    ref={textareaRef}
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendMessage();
+                      }
+                    }}
+                    rows={1}
+                    placeholder="Ketik pesan"
+                    className="flex-1 bg-transparent text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none resize-none max-h-32"
+                  />
+                </div>
+
+                {inputText.trim() ? (
+                  <button
+                    onClick={handleSendMessage}
+                    disabled={sending}
+                    className="p-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/30 transition active:scale-95 flex-shrink-0"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setIsRecordingAudio(true)}
+                    title="Pesan Suara"
+                    className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#111b21] rounded-xl transition flex-shrink-0"
+                  >
+                    <Mic className="w-5 h-5" />
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>

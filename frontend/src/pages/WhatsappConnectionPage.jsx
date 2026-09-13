@@ -49,7 +49,7 @@ export default function WhatsappConnectionPage({ waStatus, onRefreshStatus }) {
     stopFastPoll();
     fastPollRef.current = setInterval(() => {
       onRefreshStatus();
-    }, 1000);
+    }, 3000);
     setTimeout(() => stopFastPoll(), 45000);
   };
 

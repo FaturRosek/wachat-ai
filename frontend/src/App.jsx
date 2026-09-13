@@ -13,7 +13,7 @@ import { useSocket } from './context/SocketContext';
 
 function DashboardLayout() {
   const { user } = useAuth();
-  const { incomingCall, setIncomingCall } = useSocket();
+  const { incomingCall, setIncomingCall, onEvent } = useSocket();
   const [activeTab, setActiveTab] = useState('chat');
   const [waStatus, setWaStatus] = useState(null);
   const [unreadTotal, setUnreadTotal] = useState(0);
@@ -25,7 +25,9 @@ function DashboardLayout() {
         setWaStatus(res.data.data);
       }
     } catch (err) {
-      setWaStatus({ status: 'DISCONNECTED', phoneNumber: null });
+      if (err.response?.status !== 429) {
+        setWaStatus({ status: 'DISCONNECTED', phoneNumber: null });
+      }
     }
   };
 
@@ -48,15 +50,40 @@ function DashboardLayout() {
   };
 
   useEffect(() => {
-    setWaStatus(null);
     fetchWaStatus();
     fetchUnreadTotal();
+
+    const unsubWaStatus = onEvent('wa_status', (data) => {
+      if (data) {
+        setWaStatus((prev) => ({ ...(prev || {}), ...data }));
+        if (data.status === 'CONNECTED') {
+          fetchUnreadTotal();
+        } else if (data.status === 'DISCONNECTED') {
+          setUnreadTotal(0);
+        }
+      }
+    });
+
+    const unsubChatsUpdated = onEvent('chats_updated', () => {
+      fetchUnreadTotal();
+    });
+
+    const unsubMsg = onEvent('message_new', () => {
+      fetchUnreadTotal();
+    });
+
     const interval = setInterval(() => {
       fetchWaStatus();
       fetchUnreadTotal();
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [user?.id]);
+    }, 20000);
+
+    return () => {
+      clearInterval(interval);
+      unsubWaStatus();
+      unsubChatsUpdated();
+      unsubMsg();
+    };
+  }, [user?.id, onEvent]);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#f4f7fb] dark:bg-[#0c1317] text-slate-800 dark:text-slate-100 antialiased select-none font-sans transition-colors duration-200">

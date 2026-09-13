@@ -1,5 +1,21 @@
 const { query } = require('../config/database');
 
+function isPlaceholderName(name, phone, isGroup = false) {
+  if (!name || typeof name !== 'string') return true;
+  const trimmed = name.trim();
+  if (trimmed === '' || trimmed === 'Kontak' || trimmed === 'Saya' || trimmed === 'Anggota Grup' || trimmed === 'WhatsApp User' || trimmed === 'null' || trimmed === 'undefined') return true;
+  if (isGroup && (trimmed === 'Grup WhatsApp' || trimmed === 'Grup' || trimmed === 'Group')) return true;
+  const digitsOnlyName = trimmed.replace(/[^0-9]/g, '');
+  const digitsOnlyPhone = phone ? String(phone).replace(/[^0-9]/g, '') : '';
+  if (digitsOnlyPhone && digitsOnlyName === digitsOnlyPhone) return true;
+  if (digitsOnlyName.length >= 8 && (trimmed.startsWith('+') || /^[0-9+\s\-()]+$/.test(trimmed))) return true;
+  return false;
+}
+
+function isValidContactName(name, phone, isGroup = false) {
+  return !isPlaceholderName(name, phone, isGroup);
+}
+
 const ContactModel = {
   async create(userId, { name, phone, jid = null, avatarUrl = null, isGroup = false, about = '' }) {
     const isGrp = isGroup || (jid && jid.endsWith('@g.us')) || (phone && String(phone).endsWith('@g.us'));
@@ -11,7 +27,8 @@ const ContactModel = {
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *
     `;
-    const displayName = name || cleanPhone || (isGrp ? 'Grup WhatsApp' : 'Kontak WhatsApp');
+    const incomingValid = isValidContactName(name, cleanPhone, isGrp);
+    const displayName = incomingValid ? name.trim() : (cleanPhone ? (isGrp ? 'Grup WhatsApp' : `+${cleanPhone}`) : (isGrp ? 'Grup WhatsApp' : 'Kontak WhatsApp'));
     const { rows } = await query(text, [userId, displayName, cleanPhone, cleanJid, avatarUrl, isGrp, about]);
     return rows[0];
   },
@@ -57,12 +74,12 @@ const ContactModel = {
     let vals = [existing.id];
     let pIdx = 2;
 
-    const isExistingPlaceholder = !existing.name || existing.name === cleanPhone || existing.name === `+${cleanPhone}` || existing.name === 'Kontak' || existing.name === 'Saya' || (isGrp && existing.name === 'Grup WhatsApp');
-    const isIncomingValid = name && name !== cleanPhone && name !== `+${cleanPhone}` && name !== 'Kontak' && name !== 'Saya' && (!isGrp || name !== 'Grup WhatsApp');
+    const existingIsPlaceholder = isPlaceholderName(existing.name, cleanPhone, isGrp);
+    const incomingIsValid = isValidContactName(name, cleanPhone, isGrp);
 
-    if (isIncomingValid && isExistingPlaceholder) {
+    if (incomingIsValid && (existingIsPlaceholder || (name && name.trim() !== existing.name))) {
       updates.push(`name = $${pIdx++}`);
-      vals.push(name);
+      vals.push(name.trim());
     }
     if (avatarUrl && existing.avatar_url !== avatarUrl) {
       updates.push(`avatar_url = $${pIdx++}`);
@@ -103,10 +120,10 @@ const ContactModel = {
     const findText = `
       SELECT *
       FROM contacts
-      WHERE user_id = $1 AND (jid = $2 OR phone = $3 OR phone = $2 OR (length($3) >= 8 AND phone = $3))
+      WHERE user_id = $1 AND (jid = $2 OR phone = $3 OR phone = $2 OR (length($3) >= 8 AND (jid LIKE $4 OR phone LIKE $4)))
       LIMIT 1
     `;
-    const findResult = await query(findText, [userId, cleanJid, cleanPhone]);
+    const findResult = await query(findText, [userId, cleanJid, cleanPhone, `%${cleanPhone}%`]);
     
     if (findResult.rows.length > 0) {
       const existing = findResult.rows[0];
@@ -114,12 +131,12 @@ const ContactModel = {
       let vals = [existing.id];
       let pIdx = 2;
 
-      const isExistingPlaceholder = !existing.name || existing.name === cleanPhone || existing.name === `+${cleanPhone}` || existing.name === 'Kontak' || existing.name === 'Saya' || (isGrp && existing.name === 'Grup WhatsApp');
-      const isIncomingValid = name && name !== cleanPhone && name !== `+${cleanPhone}` && name !== 'Kontak' && name !== 'Saya' && (!isGrp || name !== 'Grup WhatsApp');
+      const existingIsPlaceholder = isPlaceholderName(existing.name, cleanPhone, isGrp);
+      const incomingIsValid = isValidContactName(name, cleanPhone, isGrp);
 
-      if (isIncomingValid && isExistingPlaceholder) {
+      if (incomingIsValid && existingIsPlaceholder) {
         updates.push(`name = $${pIdx++}`);
-        vals.push(name);
+        vals.push(name.trim());
       }
       if (!existing.jid && cleanJid) {
         updates.push(`jid = $${pIdx++}`);
@@ -142,15 +159,69 @@ const ContactModel = {
       return existing;
     }
 
+    const incomingIsValid = isValidContactName(name, cleanPhone, isGrp);
+    const displayName = incomingIsValid ? name.trim() : (isGrp ? 'Grup WhatsApp' : `+${cleanPhone}`);
+
     const insertText = `
       INSERT INTO contacts (user_id, name, phone, jid, avatar_url, is_group)
       VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING *
     `;
-    const displayName = name || (isGrp ? 'Grup WhatsApp' : `+${cleanPhone}`);
     const insertValues = [userId, displayName, cleanPhone, cleanJid, avatarUrl, isGrp];
     const insertResult = await query(insertText, insertValues);
     return insertResult.rows[0];
+  },
+
+  async updateAvatar(userId, jid, avatarUrl) {
+    if (!avatarUrl) return null;
+    const isGrp = jid.endsWith('@g.us');
+    const cleanPhone = isGrp ? jid : jid.replace(/[^0-9]/g, '');
+    const sql = `
+      UPDATE contacts
+      SET avatar_url = $1, updated_at = CURRENT_TIMESTAMP
+      WHERE user_id = $2 AND (jid = $3 OR phone = $4 OR phone = $3 OR (length($4) >= 8 AND (jid LIKE $5 OR phone LIKE $5)))
+      RETURNING *
+    `;
+    const res = await query(sql, [avatarUrl, userId, jid, cleanPhone, `%${cleanPhone}%`]);
+    return res.rows[0] || null;
+  },
+
+  async updateNameIfPlaceholder(userId, jid, newName) {
+    if (!newName || typeof newName !== 'string') return null;
+    const trimmed = newName.trim();
+    const isGrp = jid.endsWith('@g.us');
+    const cleanPhone = isGrp ? jid : jid.replace(/[^0-9]/g, '');
+    if (!isValidContactName(trimmed, cleanPhone, isGrp)) return null;
+
+    const contact = await this.findByJid(userId, jid);
+    if (!contact) return null;
+
+    if (isPlaceholderName(contact.name, cleanPhone, isGrp)) {
+      const sql = `
+        UPDATE contacts
+        SET name = $1, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2
+        RETURNING *
+      `;
+      const res = await query(sql, [trimmed, contact.id]);
+      return res.rows[0] || null;
+    }
+    return contact;
+  },
+
+  async getContactsWithoutAvatar(userId, limit = 50) {
+    const sql = `
+      SELECT id, jid, phone, name, is_group
+      FROM contacts
+      WHERE user_id = $1 
+        AND avatar_url IS NULL
+        AND jid NOT LIKE '%@lid' 
+        AND phone NOT LIKE '%@lid'
+      ORDER BY last_message_time DESC NULLS LAST, updated_at DESC
+      LIMIT $2
+    `;
+    const { rows } = await query(sql, [userId, limit]);
+    return rows;
   },
 
   async updateLastMessage(userId, jid, { text, timestamp = new Date(), incrementUnread = false }) {
@@ -233,7 +304,10 @@ const ContactModel = {
       params.push(`%${search}%`);
       pIdx++;
     } else {
-      whereConditions.push(`(c.last_message_text IS NOT NULL OR COALESCE(c.unread_count, 0) > 0)`);
+      whereConditions.push(`(
+        (c.last_message_time IS NOT NULL AND c.last_message_time >= CURRENT_TIMESTAMP - INTERVAL '7 days')
+        OR COALESCE(c.unread_count, 0) > 0
+      )`);
     }
 
     if (filter === 'unread') {
@@ -276,10 +350,10 @@ const ContactModel = {
     const text = `
       SELECT *
       FROM contacts
-      WHERE user_id = $1 AND (jid = $2 OR phone = $3 OR phone = $2)
+      WHERE user_id = $1 AND (jid = $2 OR phone = $3 OR phone = $2 OR (length($3) >= 8 AND (jid LIKE $4 OR phone LIKE $4)))
       LIMIT 1
     `;
-    const { rows } = await query(text, [userId, jid, cleanPhone]);
+    const { rows } = await query(text, [userId, jid, cleanPhone, `%${cleanPhone}%`]);
     return rows[0] || null;
   },
 

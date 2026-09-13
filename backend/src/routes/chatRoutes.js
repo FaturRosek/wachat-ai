@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
 const ChatController = require('../controllers/chatController');
 const authMiddleware = require('../middleware/authMiddleware');
 const { messageLimiter, aiLimiter } = require('../middleware/rateLimiter');
@@ -12,6 +13,10 @@ const {
   toggleAutoReplySchema
 } = require('../schemas/chatSchemas');
 
+const upload = multer({
+  limits: { fileSize: 25 * 1024 * 1024 }
+});
+
 router.use(authMiddleware);
 
 router.get('/', ChatController.getChats);
@@ -19,6 +24,7 @@ router.post('/sync', ChatController.syncChats);
 router.get('/logs/calls', ChatController.getCallLogs);
 
 router.post('/send', messageLimiter, validate(sendChatMessageSchema), ChatController.sendMessage);
+router.post('/send-voice', messageLimiter, upload.single('audio'), ChatController.sendVoiceNote);
 router.post('/ai/smart-suggestions', aiLimiter, validate(aiContextSchema), ChatController.getSmartSuggestions);
 router.post('/ai/summarize', aiLimiter, validate(aiContextSchema), ChatController.summarizeChat);
 router.post('/ai/rewrite', aiLimiter, validate(aiRewriteSchema), ChatController.rewriteMessage);

@@ -10,17 +10,20 @@ const ChatController = {
   async getChats(req, res, next) {
     try {
       const session = await WhatsappSessionModel.getByUserId(req.user.id);
-      if (!session || session.status !== 'CONNECTED') {
-        // Automatically purge leftover data if disconnected
-        await MessageModel.deleteAllByUser(req.user.id);
-        await ContactModel.deleteAllByUser(req.user.id);
-        await CallLogModel.deleteAllByUser(req.user.id);
-        await ChatAiSettingModel.deleteAllByUser(req.user.id);
+      if (session && session.status === 'DISCONNECTED') {
+        const key = WhatsappService.getSessionKey(req.user.id, 'default');
+        const activeMemSession = WhatsappService.sessions.get(key);
+        if (!activeMemSession || activeMemSession.status === 'DISCONNECTED') {
+          await MessageModel.deleteAllByUser(req.user.id);
+          await ContactModel.deleteAllByUser(req.user.id);
+          await CallLogModel.deleteAllByUser(req.user.id);
+          await ChatAiSettingModel.deleteAllByUser(req.user.id);
 
-        return res.status(200).json({
-          success: true,
-          data: []
-        });
+          return res.status(200).json({
+            success: true,
+            data: []
+          });
+        }
       }
 
       const { search = '', filter = 'all' } = req.query;
@@ -41,16 +44,20 @@ const ChatController = {
       const { limit = 100, offset = 0 } = req.query;
 
       const session = await WhatsappSessionModel.getByUserId(req.user.id);
-      if (!session || session.status !== 'CONNECTED') {
-        return res.status(200).json({
-          success: true,
-          data: {
-            jid,
-            contact: null,
-            aiSetting: null,
-            messages: []
-          }
-        });
+      if (session && session.status === 'DISCONNECTED') {
+        const key = WhatsappService.getSessionKey(req.user.id, 'default');
+        const activeMemSession = WhatsappService.sessions.get(key);
+        if (!activeMemSession || activeMemSession.status === 'DISCONNECTED') {
+          return res.status(200).json({
+            success: true,
+            data: {
+              jid,
+              contact: null,
+              aiSetting: null,
+              messages: []
+            }
+          });
+        }
       }
 
       await ContactModel.resetUnread(req.user.id, jid);
@@ -64,6 +71,10 @@ const ChatController = {
 
       const contact = await ContactModel.findByJid(req.user.id, jid);
       const aiSetting = await ChatAiSettingModel.getByJid(req.user.id, jid);
+
+      if (contact && !contact.avatar_url) {
+        WhatsappService.fetchProfilePicture(req.user.id, 'default', jid).catch(() => {});
+      }
 
       res.status(200).json({
         success: true,
@@ -99,6 +110,35 @@ const ChatController = {
       res.status(200).json({
         success: true,
         message: 'Pesan terkirim!',
+        data: result
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async sendVoiceNote(req, res, next) {
+    try {
+      const { jid, sessionName = 'default' } = req.body;
+      const file = req.file;
+
+      if (!jid || !file) {
+        return res.status(400).json({
+          success: false,
+          message: 'JID penerima dan file rekaman audio wajib disertakan'
+        });
+      }
+
+      const result = await WhatsappService.sendVoiceNote(req.user.id, {
+        jid,
+        audioBuffer: file.buffer,
+        mimetype: file.mimetype || 'audio/ogg; codecs=opus',
+        sessionName
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'Voice Note berhasil dikirim!',
         data: result
       });
     } catch (error) {

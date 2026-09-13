@@ -1,27 +1,19 @@
 const rateLimit = require('express-rate-limit');
 
-/**
- * Global rate limiter for standard API routes
- * 300 requests per 15 minutes per IP
- */
 const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 300,
+  windowMs: 1 * 60 * 1000,
+  max: 1000,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
     success: false,
-    message: 'Terlalu banyak permintaan dari IP ini. Silakan coba lagi setelah 15 menit.'
+    message: 'Terlalu banyak permintaan dari IP ini. Silakan coba lagi setelah 1 menit.'
   }
 });
 
-/**
- * Strict limiter for Auth endpoints (Login & Register)
- * 10 requests per 15 minutes per IP (Protects against brute force and credential stuffing)
- */
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 15,
+  max: 60,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -30,13 +22,9 @@ const authLimiter = rateLimit({
   }
 });
 
-/**
- * Rate limiter for WhatsApp Pairing Code generation
- * 5 requests per 15 minutes per IP
- */
 const pairingCodeLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: 30,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -45,13 +33,9 @@ const pairingCodeLimiter = rateLimit({
   }
 });
 
-/**
- * Rate limiter for Message Sending (Chats & Outbound Dispatch)
- * 40 messages per minute per IP
- */
 const messageLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
-  max: 40,
+  max: 120,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -60,13 +44,9 @@ const messageLimiter = rateLimit({
   }
 });
 
-/**
- * Rate limiter for AI features (Suggestions, Summarize, Auto-Reply, Rewrite)
- * 20 requests per minute per IP
- */
 const aiLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
-  max: 20,
+  max: 60,
   standardHeaders: true,
   legacyHeaders: false,
   message: {

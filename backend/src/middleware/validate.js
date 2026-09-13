@@ -1,10 +1,5 @@
 const { ZodError } = require('zod');
 
-/**
- * Higher-order middleware to validate Express requests against a Zod schema.
- * @param {import('zod').ZodSchema} schema
- * @param {'body' | 'query' | 'params'} source
- */
 const validate = (schema, source = 'body') => {
   return async (req, res, next) => {
     try {

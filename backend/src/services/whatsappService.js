@@ -5,6 +5,7 @@ const {
   DisconnectReason,
   fetchLatestBaileysVersion,
   Browsers,
+  downloadContentFromMessage,
 } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const QRCode = require("qrcode");
@@ -18,13 +19,24 @@ const ChatAiSettingModel = require("../models/chatAiSettingModel");
 const CallLogModel = require("../models/callLogModel");
 const aiService = require("./aiService");
 const socketService = require("./socketService");
+const ffmpeg = require("fluent-ffmpeg");
+const ffmpegStatic = require("ffmpeg-static");
 const { enqueueDispatch } = require("../jobs/messageQueue");
 const { formatPhoneNumber } = require("../utils/phoneValidator");
 
+if (ffmpegStatic) {
+  ffmpeg.setFfmpegPath(ffmpegStatic);
+}
+
 const SESSIONS_BASE_DIR = path.join(__dirname, "../../sessions");
+const UPLOADS_DIR = path.join(__dirname, "../../uploads");
 
 if (!fs.existsSync(SESSIONS_BASE_DIR)) {
   fs.mkdirSync(SESSIONS_BASE_DIR, { recursive: true });
+}
+
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
 let cachedWAVersion = null;
@@ -38,6 +50,46 @@ async function getWAVersion() {
   } catch (e) {
     return [2, 3000, 1043857760];
   }
+}
+
+function convertToOpusOgg(inputBuffer) {
+  return new Promise((resolve) => {
+    const tempIn = path.join(UPLOADS_DIR, `temp_in_${Date.now()}_${Math.random().toString(36).slice(2)}.tmp`);
+    const tempOut = path.join(UPLOADS_DIR, `temp_out_${Date.now()}_${Math.random().toString(36).slice(2)}.ogg`);
+
+    fs.writeFileSync(tempIn, inputBuffer);
+
+    ffmpeg(tempIn)
+      .noVideo()
+      .audioCodec("libopus")
+      .audioChannels(1)
+      .audioFrequency(16000)
+      .audioBitrate("16k")
+      .outputOptions([
+        "-application voip",
+        "-frame_duration 20",
+        "-vbr on"
+      ])
+      .toFormat("ogg")
+      .save(tempOut)
+      .on("end", () => {
+        try {
+          const oggBuffer = fs.readFileSync(tempOut);
+          try { fs.unlinkSync(tempIn); } catch (e) {}
+          try { fs.unlinkSync(tempOut); } catch (e) {}
+          resolve(oggBuffer);
+        } catch (readErr) {
+          try { fs.unlinkSync(tempIn); } catch (e) {}
+          try { fs.unlinkSync(tempOut); } catch (e) {}
+          resolve(inputBuffer);
+        }
+      })
+      .on("error", () => {
+        try { fs.unlinkSync(tempIn); } catch (e) {}
+        try { fs.unlinkSync(tempOut); } catch (e) {}
+        resolve(inputBuffer);
+      });
+  });
 }
 
 class WhatsappService {
@@ -213,8 +265,12 @@ class WhatsappService {
         logger,
         printQRInTerminal: false,
         browser: Browsers.ubuntu("Chrome"),
-        syncFullHistory: true,
-        shouldSyncHistoryMessage: () => true,
+        syncFullHistory: false,
+        shouldSyncHistoryMessage: (historyMsg) => {
+          const oneWeekAgoSec = Math.floor((Date.now() - 7 * 24 * 60 * 60 * 1000) / 1000);
+          const msgTimestamp = Number(historyMsg?.messageTimestamp || 0);
+          return !msgTimestamp || msgTimestamp >= oneWeekAgoSec;
+        },
         shouldIgnoreJid: () => false,
         markOnlineOnConnect: true,
         connectTimeoutMs: 60000,
@@ -477,6 +533,8 @@ class WhatsappService {
 
     sock.ev.on("messaging-history.set", async ({ chats, contacts, messages, isLatest, syncType }) => {
       try {
+        const oneWeekAgoSec = Math.floor((Date.now() - 7 * 24 * 60 * 60 * 1000) / 1000);
+
         if (Array.isArray(contacts)) {
           for (const c of contacts) {
             await this._processContactObject(userId, sessionName, c);
@@ -485,17 +543,27 @@ class WhatsappService {
 
         if (Array.isArray(chats)) {
           for (const c of chats) {
-            await this._processChatObject(userId, sessionName, c);
+            const convTime = c.conversationTimestamp ? Number(c.conversationTimestamp) : 0;
+            const recvTime = c.lastMessageRecvTimestamp ? Number(c.lastMessageRecvTimestamp) : 0;
+            const unread = Number(c.unreadCount || 0);
+            if (convTime >= oneWeekAgoSec || recvTime >= oneWeekAgoSec || unread > 0) {
+              await this._processChatObject(userId, sessionName, c);
+            }
           }
         }
 
         if (Array.isArray(messages)) {
           for (const m of messages) {
-            await this._processMessageObject(userId, sessionName, m);
+            const parsed = this._unwrapWAMessage(m);
+            const msgTs = parsed?.timestamp ? Number(parsed.timestamp) : 0;
+            if (!msgTs || msgTs >= oneWeekAgoSec) {
+              await this._processMessageObject(userId, sessionName, m);
+            }
           }
         }
 
         await this.syncGroupsAndChats(userId, sessionName).catch(() => {});
+        await this.syncAvatars(userId, sessionName).catch(() => {});
         await ContactModel.syncLastMessagesFromHistory(userId);
 
         socketService.emitToUser(userId, "chat_sync_complete", { count: (chats?.length || 0) + (contacts?.length || 0) });
@@ -525,12 +593,14 @@ class WhatsappService {
       for (const c of contacts) {
         await this._processContactObject(userId, sessionName, c);
       }
+      socketService.emitToUser(userId, "chats_updated", {});
     });
 
     sock.ev.on("contacts.update", async (contactUpdates) => {
       for (const c of contactUpdates) {
         await this._processContactObject(userId, sessionName, c);
       }
+      socketService.emitToUser(userId, "chats_updated", {});
     });
 
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
@@ -606,6 +676,85 @@ class WhatsappService {
     };
   }
 
+  async downloadAndSaveMedia(messageContent, mediaType, messageId) {
+    try {
+      if (!messageContent || !messageId) return null;
+      const type = mediaType === "voice" ? "audio" : mediaType;
+      const stream = await downloadContentFromMessage(messageContent, type);
+      let buffer = Buffer.from([]);
+      for await (const chunk of stream) {
+        buffer = Buffer.concat([buffer, chunk]);
+      }
+      if (!buffer || buffer.length === 0) return null;
+
+      const ext = mediaType === "voice" || mediaType === "audio" ? "ogg" : (mediaType === "image" ? "jpg" : (mediaType === "video" ? "mp4" : "bin"));
+      const filename = `media_${messageId}.${ext}`;
+      const filePath = path.join(UPLOADS_DIR, filename);
+      fs.writeFileSync(filePath, buffer);
+      return `/uploads/${filename}`;
+    } catch (err) {
+      console.warn("[WhatsApp Media Download Warning]:", err.message);
+      return null;
+    }
+  }
+
+  async fetchProfilePicture(userId, sessionName = "default", jid) {
+    if (!jid || jid.includes("@newsletter") || jid.includes("status@broadcast") || jid === "0@s.whatsapp.net") {
+      return null;
+    }
+    const key = this.getSessionKey(userId, sessionName);
+    const session = this.sessions.get(key);
+    if (!session || !session.sock || session.status !== "CONNECTED") {
+      return null;
+    }
+
+    try {
+      let url = await session.sock.profilePictureUrl(jid, 'image').catch(() => null);
+      if (!url) {
+        url = await session.sock.profilePictureUrl(jid, 'preview').catch(() => null);
+      }
+      if (url) {
+        await ContactModel.updateAvatar(userId, jid, url);
+        socketService.emitToUser(userId, "chat_avatar_update", { jid, avatarUrl: url });
+        return url;
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async syncAvatars(userId, sessionName = "default") {
+    const key = this.getSessionKey(userId, sessionName);
+    const session = this.sessions.get(key);
+    if (!session || !session.sock || session.status !== "CONNECTED") {
+      return;
+    }
+
+    try {
+      const contactsToFetch = await ContactModel.getContactsWithoutAvatar(userId, 50);
+      if (!contactsToFetch || contactsToFetch.length === 0) return;
+
+      for (let i = 0; i < contactsToFetch.length; i += 4) {
+        const batch = contactsToFetch.slice(i, i + 4);
+        await Promise.all(
+          batch.map(async (c) => {
+            const targetJid = c.jid || (c.is_group ? c.phone : `${c.phone}@s.whatsapp.net`);
+            if (targetJid) {
+              await this.fetchProfilePicture(userId, sessionName, targetJid).catch(() => {});
+            }
+          })
+        );
+        if (i + 4 < contactsToFetch.length) {
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+      }
+      socketService.emitToUser(userId, "chats_updated", {});
+    } catch (err) {
+      console.error(`[WhatsApp - ${userId}] Error syncing avatars:`, err.message);
+    }
+  }
+
   async syncGroupsAndChats(userId, sessionName = "default") {
     const key = this.getSessionKey(userId, sessionName);
     const session = this.sessions.get(key);
@@ -621,6 +770,9 @@ class WhatsappService {
         let avatarUrl = null;
         try {
           avatarUrl = await session.sock.profilePictureUrl(g.id, 'image').catch(() => null);
+          if (!avatarUrl) {
+            avatarUrl = await session.sock.profilePictureUrl(g.id, 'preview').catch(() => null);
+          }
         } catch (e) {}
 
         await ContactModel.upsertGroup(userId, {
@@ -631,6 +783,7 @@ class WhatsappService {
         });
       }
 
+      await this.syncAvatars(userId, sessionName).catch(() => {});
       await ContactModel.syncLastMessagesFromHistory(userId);
       socketService.emitToUser(userId, "chat_sync_complete", { count: groupList.length });
       socketService.emitToUser(userId, "chats_updated", {});
@@ -697,12 +850,15 @@ class WhatsappService {
       }
     }
 
-    const name = c.notify || c.verifiedName || c.name || (isGroup ? "Grup WhatsApp" : `+${cleanPhone}`);
+    const candidateName = c.name || c.notify || c.verifiedName || null;
+    const name = candidateName && candidateName.trim() ? candidateName.trim() : (isGroup ? "Grup WhatsApp" : `+${cleanPhone}`);
+    const avatarUrl = c.imgUrl || null;
 
     await ContactModel.upsertChat(userId, {
       jid: cleanJid,
       name,
       phone: cleanPhone,
+      avatarUrl,
       isGroup,
     });
   }
@@ -797,6 +953,12 @@ class WhatsappService {
       return;
     }
 
+    const msgTimeSec = Number(timestamp || Date.now() / 1000);
+    const oneWeekAgoSec = Math.floor((Date.now() - 7 * 24 * 60 * 60 * 1000) / 1000);
+    if (msgTimeSec < oneWeekAgoSec) {
+      return;
+    }
+
     const isGroup = remoteJid.endsWith("@g.us");
     const rawPhone = isGroup ? remoteJid : remoteJid.replace(/[^0-9]/g, "");
     const senderName = pushName || (fromMe ? "Saya" : (isGroup ? "Anggota Grup" : `+${rawPhone}`));
@@ -816,6 +978,7 @@ class WhatsappService {
       textContent = proto.imageMessage.caption || "📷 Foto";
       mediaType = "image";
       mediaCaption = proto.imageMessage.caption;
+      mediaUrl = await this.downloadAndSaveMedia(proto.imageMessage, "image", messageId);
     } else if (proto.videoMessage) {
       textContent = proto.videoMessage.caption || "🎥 Video";
       mediaType = "video";
@@ -823,6 +986,8 @@ class WhatsappService {
     } else if (proto.audioMessage) {
       textContent = proto.audioMessage.ptt ? "🎤 Pesan Suara" : "🎵 Audio";
       mediaType = proto.audioMessage.ptt ? "voice" : "audio";
+      mediaCaption = proto.audioMessage.ptt ? "Pesan Suara" : "Audio";
+      mediaUrl = await this.downloadAndSaveMedia(proto.audioMessage, "audio", messageId);
     } else if (proto.documentMessage) {
       textContent = `📄 ${proto.documentMessage.fileName || proto.documentMessage.caption || "Dokumen"}`;
       mediaType = "document";
@@ -852,9 +1017,13 @@ class WhatsappService {
 
     if (!textContent && mediaType === "text") return;
 
+    if (!fromMe && !isGroup && pushName && pushName.trim() && pushName !== "Kontak" && pushName !== "Saya") {
+      await ContactModel.updateNameIfPlaceholder(userId, remoteJid, pushName.trim());
+    }
+
     try {
       const contact = await ContactModel.findOrCreate(userId, {
-        name: isGroup ? "Grup WhatsApp" : (senderName || `+${rawPhone}`),
+        name: isGroup ? "Grup WhatsApp" : (!fromMe && pushName ? pushName : `+${rawPhone}`),
         phone: rawPhone,
         jid: remoteJid,
         isGroup,
@@ -1018,6 +1187,10 @@ class WhatsappService {
     const sent = await session.sock.sendMessage(cleanJid, {
       text: text.trim(),
     });
+
+    if (sent?.key?.id) {
+      this.processedMessageIds.set(`${userId}_${sent.key.id}`, Date.now());
+    }
 
     const savedMessage = await MessageModel.create({
       userId,
@@ -1206,7 +1379,6 @@ class WhatsappService {
       this.sessions.delete(key);
     }
 
-    // 1. Clear in-memory caches for this user
     for (const cacheKey of this.processedMessageIds.keys()) {
       if (cacheKey.startsWith(`${userId}_`)) {
         this.processedMessageIds.delete(cacheKey);
@@ -1218,7 +1390,6 @@ class WhatsappService {
       }
     }
 
-    // 2. Delete physical auth session files on disk
     const sessionDir = path.join(SESSIONS_BASE_DIR, `${userId}_${sessionName}`);
     try {
       if (fs.existsSync(sessionDir)) {
@@ -1228,7 +1399,6 @@ class WhatsappService {
       console.error(`[WhatsApp - ${userId}] Error removing session dir:`, delErr.message);
     }
 
-    // 3. Reset WhatsApp session in database
     try {
       await WhatsappSessionModel.updateStatus(userId, "DISCONNECTED", {
         phoneNumber: null,
@@ -1240,7 +1410,6 @@ class WhatsappService {
       console.error(`[WhatsApp - ${userId}] Error updating session status to DISCONNECTED:`, dbErr.message);
     }
 
-    // 4. Wipe all synchronized chat & message data from database for complete privacy & reset
     try {
       await MessageModel.deleteAllByUser(userId);
       await ContactModel.deleteAllByUser(userId);
@@ -1251,7 +1420,6 @@ class WhatsappService {
       console.error(`[WhatsApp - ${userId}] Error wiping user chat data on disconnect:`, wipeErr.message);
     }
 
-    // 5. Emit real-time reset events to frontend
     socketService.emitToUser(userId, "wa_status", {
       status: "DISCONNECTED",
       phoneNumber: null,
@@ -1404,6 +1572,116 @@ class WhatsappService {
       messageId: sent?.key?.id,
       status: "SENT",
     };
+  }
+
+  async sendVoiceNote(userId, { jid, audioBuffer, mimetype = 'audio/ogg; codecs=opus', sessionName = 'default' }) {
+    const key = this.getSessionKey(userId, sessionName);
+    const session = this.sessions.get(key);
+    if (!session || !session.sock || session.status !== "CONNECTED") {
+      throw new Error("WhatsApp belum terhubung");
+    }
+
+    const isGroup = typeof jid === "string" && jid.endsWith("@g.us");
+    let cleanJid = jid;
+    let cleanPhone = isGroup ? jid : jid.replace(/[^0-9]/g, "");
+
+    if (jid.endsWith("@lid")) {
+      const resolved = this.resolveLidToPhone(userId, sessionName, jid);
+      cleanJid = resolved.jid;
+      cleanPhone = resolved.phone;
+    } else if (!isGroup && !jid.includes("@")) {
+      cleanJid = `${cleanPhone}@s.whatsapp.net`;
+    }
+
+    let finalBuffer = audioBuffer;
+    try {
+      finalBuffer = await convertToOpusOgg(audioBuffer);
+    } catch (convErr) {}
+
+    let durationSeconds = 1;
+    let waveform = null;
+    try {
+      const mm = require("music-metadata");
+      const meta = await mm.parseBuffer(finalBuffer, "audio/ogg");
+      if (meta?.format?.duration) {
+        durationSeconds = Math.max(1, Math.round(meta.format.duration));
+      }
+    } catch (e) {}
+
+    try {
+      const { getAudioWaveform } = require("@whiskeysockets/baileys/lib/Utils/messages-media.js");
+      waveform = await getAudioWaveform(finalBuffer);
+    } catch (e) {}
+
+    const sendPayload = {
+      audio: finalBuffer,
+      mimetype: "audio/ogg; codecs=opus",
+      ptt: true,
+      seconds: durationSeconds,
+    };
+    if (waveform && waveform.length === 64) {
+      sendPayload.waveform = waveform;
+    }
+
+    const sent = await session.sock.sendMessage(cleanJid, sendPayload);
+
+    if (sent?.key?.id) {
+      this.processedMessageIds.set(`${userId}_${sent.key.id}`, Date.now());
+    }
+
+    const messageId = sent?.key?.id || `vn_${Date.now()}`;
+    const filename = `vn_${messageId}.ogg`;
+    const filePath = path.join(UPLOADS_DIR, filename);
+    try {
+      fs.writeFileSync(filePath, finalBuffer);
+    } catch (e) {}
+
+    const mediaUrl = `/uploads/${filename}`;
+
+    const contact = await ContactModel.findOrCreate(userId, {
+      name: isGroup ? "Grup WhatsApp" : `+${cleanPhone}`,
+      phone: cleanPhone,
+      jid: cleanJid,
+      isGroup,
+    });
+
+    const savedMessage = await MessageModel.create({
+      userId,
+      contactId: contact?.id || null,
+      phone: cleanPhone,
+      remoteJid: cleanJid,
+      messageId,
+      senderName: "Saya",
+      content: "🎤 Pesan Suara",
+      mediaType: "voice",
+      mediaUrl,
+      mediaCaption: "Pesan Suara",
+      direction: "OUTGOING",
+      status: "SENT",
+      fromMe: true,
+      sentAt: new Date(),
+    });
+
+    await ContactModel.updateLastMessage(userId, cleanJid, {
+      text: "✓ 🎤 Pesan Suara",
+      timestamp: new Date(),
+      incrementUnread: false,
+    });
+
+    socketService.emitToUser(userId, "message_new", {
+      message: savedMessage,
+      contact,
+      remoteJid: cleanJid,
+    });
+
+    socketService.emitToUser(userId, "chat_update", {
+      jid: cleanJid,
+      lastMessage: "✓ 🎤 Pesan Suara",
+      lastMessageTime: new Date(),
+      unreadIncrement: false,
+    });
+
+    return savedMessage;
   }
 
   async restoreAllSavedSessions() {

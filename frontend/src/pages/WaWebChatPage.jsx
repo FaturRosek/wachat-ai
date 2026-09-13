@@ -23,6 +23,7 @@ import {
   ChevronLeft,
   X,
   Zap,
+  Eye,
 } from 'lucide-react';
 import apiClient from '../api/apiClient';
 import { useSocket } from '../context/SocketContext';
@@ -30,6 +31,8 @@ import AiChatSettingsDrawer from '../components/chat/AiChatSettingsDrawer';
 import NewChatModal from '../components/chat/NewChatModal';
 import WhatsAppAudioPlayer from '../components/chat/WhatsAppAudioPlayer';
 import VoiceNoteRecorder from '../components/chat/VoiceNoteRecorder';
+import WhatsAppVideoPlayer from '../components/chat/WhatsAppVideoPlayer';
+import MediaViewerModal from '../components/chat/MediaViewerModal';
 
 export default function WaWebChatPage({ waStatus }) {
   const { onEvent } = useSocket();
@@ -44,6 +47,7 @@ export default function WaWebChatPage({ waStatus }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterTab, setFilterTab] = useState('all');
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  const [previewMedia, setPreviewMedia] = useState(null);
 
   const [aiSuggestions, setAiSuggestions] = useState([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
@@ -884,18 +888,84 @@ export default function WaWebChatPage({ waStatus }) {
                         </p>
                       )}
 
-                      {msg.media_type === 'voice' || msg.media_type === 'audio' || (msg.media_url && (msg.media_url.endsWith('.ogg') || msg.media_url.endsWith('.mp3') || msg.media_url.endsWith('.m4a') || msg.media_url.endsWith('.webm'))) ? (
-                        <WhatsAppAudioPlayer audioUrl={msg.media_url} isMe={isMe} senderAvatar={msg.sender_avatar} />
-                      ) : msg.media_type === 'image' && msg.media_url ? (
-                        <div className="mb-1 rounded-xl overflow-hidden max-w-xs">
-                          <img src={msg.media_url} alt="Foto" className="w-full h-auto object-cover max-h-60 rounded-xl" />
-                          {msg.content && msg.content !== '📷 Foto' && (
-                            <p className="whitespace-pre-wrap break-words mt-1">{msg.content}</p>
-                          )}
-                        </div>
-                      ) : (
-                        <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                      )}
+                      {(() => {
+                        const isVo = msg.raw_data?.isViewOnce || 
+                          (typeof msg.raw_data === 'string' && msg.raw_data.includes('"isViewOnce":true')) || 
+                          msg.content?.includes('(Sekali Lihat)') || 
+                          msg.media_caption?.includes('Sekali Lihat') || 
+                          msg.content?.includes('👁️');
+
+                        if (msg.media_type === 'voice' || msg.media_type === 'audio' || (msg.media_url && (msg.media_url.endsWith('.ogg') || msg.media_url.endsWith('.mp3') || msg.media_url.endsWith('.m4a') || msg.media_url.endsWith('.webm')))) {
+                          return <WhatsAppAudioPlayer audioUrl={msg.media_url} isMe={isMe} senderAvatar={msg.sender_avatar} />;
+                        }
+
+                        if (msg.media_type === 'video' && msg.media_url) {
+                          return (
+                            <WhatsAppVideoPlayer
+                              videoUrl={msg.media_url}
+                              isMe={isMe}
+                              caption={msg.content}
+                              isViewOnce={isVo}
+                              onExpand={() => setPreviewMedia({
+                                type: 'video',
+                                url: msg.media_url,
+                                caption: msg.content,
+                                isViewOnce: isVo
+                              })}
+                            />
+                          );
+                        }
+
+                        if (msg.media_type === 'image' && msg.media_url) {
+                          return (
+                            <div 
+                              className="mb-1 rounded-xl overflow-hidden max-w-xs relative group cursor-pointer"
+                              onClick={() => setPreviewMedia({
+                                type: 'image',
+                                url: msg.media_url,
+                                caption: msg.content,
+                                isViewOnce: isVo
+                              })}
+                            >
+                              {isVo && (
+                                <div className="absolute top-2 left-2 z-10 flex items-center gap-1 px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-xs text-amber-300 border border-amber-400/40 text-[10px] font-bold shadow-md">
+                                  <Eye className="w-3 h-3 text-amber-400 animate-pulse" />
+                                  <span>Sekali Lihat</span>
+                                </div>
+                              )}
+                              <img
+                                src={msg.media_url}
+                                alt="Foto"
+                                className="w-full h-auto object-cover max-h-60 rounded-xl transition-transform duration-200 group-hover:scale-[1.02]"
+                              />
+                              {msg.content && msg.content !== '📷 Foto' && msg.content !== '👁️ Foto (Sekali Lihat)' && (
+                                <p className="whitespace-pre-wrap break-words mt-1">{msg.content}</p>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        if (msg.media_type === 'view_once' || isVo) {
+                          return (
+                            <div className="flex items-center gap-3 py-1.5 px-2 rounded-xl bg-amber-500/10 dark:bg-amber-950/40 border border-amber-400/30 text-amber-900 dark:text-amber-200 select-none">
+                              <div className="w-8 h-8 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-500 flex items-center justify-center flex-shrink-0">
+                                <Eye className="w-4 h-4 animate-pulse" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="font-bold text-xs flex items-center gap-1.5">
+                                  <span>Pesan Sekali Lihat</span>
+                                  <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-amber-500/20 font-semibold">1x</span>
+                                </p>
+                                <p className="text-[10px] opacity-80 mt-0.5">
+                                  Buka langsung di aplikasi WhatsApp ponsel Anda
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        return <p className="whitespace-pre-wrap break-words">{msg.content}</p>;
+                      })()}
 
                       <div
                         className={`flex items-center justify-end gap-1 mt-1 text-[9px] select-none ${
@@ -1140,6 +1210,11 @@ export default function WaWebChatPage({ waStatus }) {
         onClose={() => setNewChatModalOpen(false)}
         contacts={chats}
         onSelectContact={(selected) => handleSelectChat(selected)}
+      />
+
+      <MediaViewerModal
+        media={previewMedia}
+        onClose={() => setPreviewMedia(null)}
       />
     </div>
   );

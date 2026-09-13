@@ -6,6 +6,7 @@ const {
   fetchLatestBaileysVersion,
   Browsers,
   downloadContentFromMessage,
+  extractMessageContent,
 } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const QRCode = require("qrcode");
@@ -97,6 +98,33 @@ class WhatsappService {
     this.sessions = new Map();
     this.processedMessageIds = new Map();
     this.autoReplyLock = new Set();
+    this.startUploadsCleanupJob();
+  }
+
+  startUploadsCleanupJob() {
+    const cleanupOldFiles = () => {
+      try {
+        if (!fs.existsSync(UPLOADS_DIR)) return;
+        const now = Date.now();
+        const maxAgeMs = 4 * 60 * 60 * 1000;
+        const files = fs.readdirSync(UPLOADS_DIR);
+        for (const file of files) {
+          if (file === '.gitkeep') continue;
+          const filePath = path.join(UPLOADS_DIR, file);
+          try {
+            const stats = fs.statSync(filePath);
+            if (now - stats.mtimeMs > maxAgeMs) {
+              fs.unlinkSync(filePath);
+            }
+          } catch (e) {}
+        }
+      } catch (e) {
+        console.warn('[Uploads Cleanup Warning]:', e.message);
+      }
+    };
+
+    cleanupOldFiles();
+    setInterval(cleanupOldFiles, 30 * 60 * 1000);
   }
 
   getSessionKey(userId, sessionName = "default") {
@@ -797,13 +825,27 @@ class WhatsappService {
   _unwrapWAMessage(raw) {
     if (!raw) return null;
     const msg = raw.message?.message ? raw.message : (raw.message ? raw : null);
-    if (!msg) return null;
-
-    const key = msg.key || raw.key;
+    const key = raw.key || msg?.key;
     if (!key || !key.remoteJid) return null;
 
-    let m = msg.message;
-    while (m && (m.ephemeralMessage || m.viewOnceMessage || m.viewOnceMessageV2 || m.viewOnceMessageV2Extension || m.documentWithCaptionMessage || m.deviceSentMessage || m.botInvokeMessage)) {
+    let isViewOnce = !!(key.isViewOnce || raw.isViewOnce || raw.key?.isViewOnce);
+    const rawStr = JSON.stringify(raw.message || {});
+    if (
+      rawStr.includes('"viewOnceMessage"') ||
+      rawStr.includes('"viewOnceMessageV2"') ||
+      rawStr.includes('"viewOnceMessageV2Extension"') ||
+      rawStr.includes('"viewOnce":true') ||
+      rawStr.includes('"isViewOnce":true')
+    ) {
+      isViewOnce = true;
+    }
+
+    let m = extractMessageContent(raw.message) || raw.message;
+    for (let i = 0; i < 6; i++) {
+      if (!m) break;
+      if (m.viewOnceMessage || m.viewOnceMessageV2 || m.viewOnceMessageV2Extension) {
+        isViewOnce = true;
+      }
       if (m.ephemeralMessage?.message) m = m.ephemeralMessage.message;
       else if (m.viewOnceMessage?.message) m = m.viewOnceMessage.message;
       else if (m.viewOnceMessageV2?.message) m = m.viewOnceMessageV2.message;
@@ -811,10 +853,18 @@ class WhatsappService {
       else if (m.documentWithCaptionMessage?.message) m = m.documentWithCaptionMessage.message;
       else if (m.deviceSentMessage?.message) m = m.deviceSentMessage.message;
       else if (m.botInvokeMessage?.message) m = m.botInvokeMessage.message;
+      else break;
+
+      const extracted = extractMessageContent(m);
+      if (extracted) m = extracted;
     }
 
     if (m?.editedMessage?.message?.protocolMessage?.editedMessage) {
       m = m.editedMessage.message.protocolMessage.editedMessage;
+    }
+
+    if (m?.imageMessage?.viewOnce || m?.videoMessage?.viewOnce || m?.audioMessage?.viewOnce) {
+      isViewOnce = true;
     }
 
     return {
@@ -823,9 +873,10 @@ class WhatsappService {
       fromMe: !!key.fromMe,
       messageId: key.id,
       participant: key.participant,
-      pushName: msg.pushName || raw.pushName || null,
-      timestamp: msg.messageTimestamp || raw.messageTimestamp || null,
-      proto: m
+      pushName: msg?.pushName || raw.pushName || null,
+      timestamp: msg?.messageTimestamp || raw.messageTimestamp || null,
+      proto: m,
+      isViewOnce,
     };
   }
 
@@ -864,8 +915,8 @@ class WhatsappService {
   }
 
   async _processChatObject(userId, sessionName, c) {
-    if (!c || !c.id) return;
-    let rawId = c.id;
+    if (!c || (!c.id && !c.phone)) return;
+    let rawId = c.id || c.phone || "";
     if (rawId.includes("status@broadcast") || rawId.includes("@newsletter") || rawId === "0@s.whatsapp.net") {
       return;
     }
@@ -924,7 +975,7 @@ class WhatsappService {
     const parsed = this._unwrapWAMessage(raw);
     if (!parsed || !parsed.remoteJid) return;
 
-    let { remoteJid, fromMe, messageId, pushName, timestamp, proto, participant } = parsed;
+    let { remoteJid, fromMe, messageId, pushName, timestamp, proto, participant, isViewOnce } = parsed;
 
     if (remoteJid.includes("@newsletter") || remoteJid === "0@s.whatsapp.net") {
       return;
@@ -968,51 +1019,75 @@ class WhatsappService {
     let mediaUrl = null;
     let mediaCaption = null;
 
-    if (!proto) return;
+    if (!proto && raw.message) {
+      proto = extractMessageContent(raw.message) || raw.message;
+    }
+    for (let i = 0; i < 4; i++) {
+      if (!proto) break;
+      if (proto.ephemeralMessage?.message) proto = proto.ephemeralMessage.message;
+      else if (proto.viewOnceMessage?.message) proto = proto.viewOnceMessage.message;
+      else if (proto.viewOnceMessageV2?.message) proto = proto.viewOnceMessageV2.message;
+      else if (proto.viewOnceMessageV2Extension?.message) proto = proto.viewOnceMessageV2Extension.message;
+      else if (proto.documentWithCaptionMessage?.message) proto = proto.documentWithCaptionMessage.message;
+      else break;
+      const ext = extractMessageContent(proto);
+      if (ext) proto = ext;
+    }
 
-    if (proto.conversation) {
-      textContent = proto.conversation;
-    } else if (proto.extendedTextMessage) {
-      textContent = proto.extendedTextMessage.text || "";
-    } else if (proto.imageMessage) {
-      textContent = proto.imageMessage.caption || "📷 Foto";
-      mediaType = "image";
-      mediaCaption = proto.imageMessage.caption;
-      mediaUrl = await this.downloadAndSaveMedia(proto.imageMessage, "image", messageId);
-    } else if (proto.videoMessage) {
-      textContent = proto.videoMessage.caption || "🎥 Video";
-      mediaType = "video";
-      mediaCaption = proto.videoMessage.caption;
-    } else if (proto.audioMessage) {
-      textContent = proto.audioMessage.ptt ? "🎤 Pesan Suara" : "🎵 Audio";
-      mediaType = proto.audioMessage.ptt ? "voice" : "audio";
-      mediaCaption = proto.audioMessage.ptt ? "Pesan Suara" : "Audio";
-      mediaUrl = await this.downloadAndSaveMedia(proto.audioMessage, "audio", messageId);
-    } else if (proto.documentMessage) {
-      textContent = `📄 ${proto.documentMessage.fileName || proto.documentMessage.caption || "Dokumen"}`;
-      mediaType = "document";
-      mediaCaption = proto.documentMessage.fileName || proto.documentMessage.caption;
-    } else if (proto.stickerMessage) {
-      textContent = "🎨 Stiker";
-      mediaType = "sticker";
-    } else if (proto.contactMessage) {
-      textContent = `👤 ${proto.contactMessage.displayName || "Kontak"}`;
-      mediaType = "contact";
-    } else if (proto.contactsArrayMessage) {
-      textContent = "👥 Kontak";
-      mediaType = "contact";
-    } else if (proto.locationMessage) {
-      textContent = `📍 ${proto.locationMessage.name || "Lokasi"}`;
-      mediaType = "location";
-    } else if (proto.liveLocationMessage) {
-      textContent = "📍 Lokasi Terkini";
-      mediaType = "location";
-    } else if (proto.pollCreationMessage || proto.pollCreationMessageV3) {
-      textContent = `📊 Polling: ${proto.pollCreationMessage?.name || proto.pollCreationMessageV3?.name || "Polling"}`;
-      mediaType = "poll";
-    } else if (proto.groupInviteMessage) {
-      textContent = `✉️ Undangan Grup: ${proto.groupInviteMessage.groupName || "Grup"}`;
-      mediaType = "invite";
+    if (proto) {
+      if (proto.conversation) {
+        textContent = proto.conversation;
+      } else if (proto.extendedTextMessage) {
+        textContent = proto.extendedTextMessage.text || "";
+      } else if (proto.imageMessage) {
+        const isVo = !!isViewOnce;
+        textContent = proto.imageMessage.caption || (isVo ? "👁️ Foto (Sekali Lihat)" : "📷 Foto");
+        mediaType = "image";
+        mediaCaption = proto.imageMessage.caption || (isVo ? "👁️ Foto Sekali Lihat" : null);
+        mediaUrl = await this.downloadAndSaveMedia(proto.imageMessage, "image", messageId);
+      } else if (proto.videoMessage) {
+        const isVo = !!isViewOnce;
+        textContent = proto.videoMessage.caption || (isVo ? "👁️ Video (Sekali Lihat)" : "🎥 Video");
+        mediaType = "video";
+        mediaCaption = proto.videoMessage.caption || (isVo ? "👁️ Video Sekali Lihat" : null);
+        mediaUrl = await this.downloadAndSaveMedia(proto.videoMessage, "video", messageId);
+      } else if (proto.audioMessage) {
+        textContent = proto.audioMessage.ptt ? "🎤 Pesan Suara" : "🎵 Audio";
+        mediaType = proto.audioMessage.ptt ? "voice" : "audio";
+        mediaCaption = proto.audioMessage.ptt ? "Pesan Suara" : "Audio";
+        mediaUrl = await this.downloadAndSaveMedia(proto.audioMessage, "audio", messageId);
+      } else if (proto.documentMessage) {
+        textContent = `📄 ${proto.documentMessage.fileName || proto.documentMessage.caption || "Dokumen"}`;
+        mediaType = "document";
+        mediaCaption = proto.documentMessage.fileName || proto.documentMessage.caption;
+      } else if (proto.stickerMessage) {
+        textContent = "🎨 Stiker";
+        mediaType = "sticker";
+      } else if (proto.contactMessage) {
+        textContent = `👤 ${proto.contactMessage.displayName || "Kontak"}`;
+        mediaType = "contact";
+      } else if (proto.contactsArrayMessage) {
+        textContent = "👥 Kontak";
+        mediaType = "contact";
+      } else if (proto.locationMessage) {
+        textContent = `📍 ${proto.locationMessage.name || "Lokasi"}`;
+        mediaType = "location";
+      } else if (proto.liveLocationMessage) {
+        textContent = "📍 Lokasi Terkini";
+        mediaType = "location";
+      } else if (proto.pollCreationMessage || proto.pollCreationMessageV3) {
+        textContent = `📊 Polling: ${proto.pollCreationMessage?.name || proto.pollCreationMessageV3?.name || "Polling"}`;
+        mediaType = "poll";
+      } else if (proto.groupInviteMessage) {
+        textContent = `✉️ Undangan Grup: ${proto.groupInviteMessage.groupName || "Grup"}`;
+        mediaType = "invite";
+      }
+    }
+
+    if (!textContent && (isViewOnce || parsed.isViewOnce || key?.isViewOnce || raw?.key?.isViewOnce)) {
+      textContent = "👁️ Foto / Video (Sekali Lihat)";
+      mediaType = "view_once";
+      mediaCaption = "Pesan Sekali Lihat";
     }
 
     if (!textContent && mediaType === "text") return;
@@ -1042,6 +1117,7 @@ class WhatsappService {
         mediaType,
         mediaUrl,
         mediaCaption,
+        rawData: isViewOnce ? { isViewOnce: true } : null,
         direction: fromMe ? "OUTGOING" : "INCOMING",
         status: fromMe ? "SENT" : "DELIVERED",
         fromMe,

@@ -231,7 +231,13 @@ Format JSON:
       formal: 'Sopan, profesional, baku, dan resmi untuk bisnis/kantor.',
       friendly: 'Ramah, santai, akrab, hangat dengan sedikit emoji yang relevan.',
       persuasive: 'Menarik, meyakinkan untuk penawaran / promosi / sales closing.',
-      short: 'Sangat singkat, padat, to the point tanpa basa-basi.'
+      short: 'Sangat singkat, padat, to the point tanpa basa-basi.',
+      apology: 'Permohonan maaf yang tulus, empati, santun, bertanggung jawab.',
+      reminder: 'Pengingat yang jelas, terstruktur rapi, santun, dan memuat detail penting.',
+      casual: 'Santai, gaul, asik, akrab seperti mengobrol dengan sahabat/teman dekat.',
+      santai: 'Santai, gaul, asik, akrab seperti mengobrol dengan sahabat/teman dekat.',
+      romantic: 'Romantis, manis, penuh perhatian dan kasih sayang, hangat, dengan emoji cinta/hati.',
+      romantis: 'Romantis, manis, penuh perhatian dan kasih sayang, hangat, dengan emoji cinta/hati.'
     };
 
     const instruction = toneInstructions[tone] || toneInstructions.friendly;
@@ -247,16 +253,104 @@ Format JSON:
     try {
       if (process.env.GEMINI_API_KEY || this.geminiApiKey) {
         const res = await this._callGeminiRaw(prompt);
-        if (res.rewritten) return res.rewritten;
+        if (res.rewritten || res.generatedText) return (res.rewritten || res.generatedText).trim();
       } else if (process.env.OPENAI_API_KEY || this.openaiApiKey) {
         const res = await this._callOpenAIRaw(prompt);
-        if (res.rewritten) return res.rewritten;
+        if (res.rewritten || res.generatedText) return (res.rewritten || res.generatedText).trim();
       }
     } catch (e) {
       console.warn('[AI Service] Rewrite failed:', e.message);
     }
 
-    return draftText;
+    return this._fallbackComposeTemplate(draftText, tone);
+  }
+
+  async composeMessage({ prompt, tone = 'friendly', recipientName = '', customInstruction = '' }) {
+    const rawInput = (prompt || '').trim();
+    if (!rawInput) return '';
+
+    const toneDescriptions = {
+      friendly: 'Ramah, santai, akrab, hangat, menggunakan panggilan ramah (seperti "Kak" atau nama penerima) dan emoji secukupnya.',
+      formal: 'Sopan, formal, profesional, baku, dan resmi untuk keperluan bisnis atau korporat.',
+      persuasive: 'Persuasif, menarik, memikat rasa penasaran, menonjolkan keuntungan (benefit), cocok untuk promosi atau sales closing.',
+      short: 'Sangat singkat, padat, langsung to the point tanpa basa-basi berlebih.',
+      apology: 'Permohonan maaf yang tulus, berempati, santun, bertanggung jawab, dan menawarkan solusi yang baik.',
+      reminder: 'Pengingat yang jelas, terstruktur rapi, santun, dan memuat detail penting atau deadline dengan baik.',
+      casual: 'Santai, gaul, asik, akrab seperti mengobrol dengan sahabat tanpa kaku.',
+      santai: 'Santai, gaul, asik, akrab seperti mengobrol dengan sahabat tanpa kaku.',
+      romantic: 'Romantis, manis, penuh perhatian, lembut, menyentuh hati, dengan emoji kasih sayang (❤️, 🌹, 🥰).',
+      romantis: 'Romantis, manis, penuh perhatian, lembut, menyentuh hati, dengan emoji kasih sayang (❤️, 🌹, 🥰).'
+    };
+
+    const targetToneDesc = toneDescriptions[tone] || toneDescriptions.friendly;
+    const recipientContext = recipientName ? `Penerima pesan bernama: "${recipientName}". Gunakan sapaan yang sesuai jika cocok.` : 'Penerima adalah kontak WhatsApp.';
+    const extraInstruction = customInstruction ? `Instruksi khusus tambahan: ${customInstruction}` : '';
+
+    const systemInstruction = `Anda adalah asisten AI spesialis pembuat pesan chat WhatsApp bahasa Indonesia yang handal.
+Tugas Anda adalah menulis draf pesan chat WhatsApp yang siap dikirim berdasarkan instruksi atau ide yang diberikan pengguna.
+Aturan:
+- Gunakan bahasa Indonesia yang natural, mengalir, dan enak dibaca.
+- Sesuaikan gaya bahasa dengan tone yang diminta: ${targetToneDesc}
+- ${recipientContext}
+- ${extraInstruction}
+- Hasil pesan harus langsung berupa teks WhatsApp utuh (boleh memakai format WhatsApp seperti *tebal*, _miring_, atau emoji secukupnya).
+- Jangan sertakan salam pembuka/penutup meta seperti "Tentu, ini pesannya:". Langsung isi pesan final.`;
+
+    const userPrompt = `Instruksi / ide pesan pengguna:
+"${rawInput}"
+
+Buatkan draf pesan WhatsApp lengkap dan profesional sesuai permintaan di atas.
+Format JSON murni:
+{
+  "generatedText": "Isi pesan WhatsApp yang telah disusun rapi..."
+}`;
+
+    try {
+      if (process.env.GEMINI_API_KEY || this.geminiApiKey) {
+        const res = await this._callGeminiRaw(userPrompt, systemInstruction);
+        const result = res.generatedText || res.rewritten || res.reply;
+        if (result && typeof result === 'string' && result.trim()) {
+          return result.trim();
+        }
+      } else if (process.env.OPENAI_API_KEY || this.openaiApiKey) {
+        const res = await this._callOpenAIRaw(userPrompt, systemInstruction);
+        const result = res.generatedText || res.rewritten || res.reply;
+        if (result && typeof result === 'string' && result.trim()) {
+          return result.trim();
+        }
+      }
+    } catch (e) {
+      console.warn('[AI Service] composeMessage failed, using fallback template:', e.message);
+    }
+
+    return this._fallbackComposeTemplate(rawInput, tone, recipientName);
+  }
+
+  _fallbackComposeTemplate(input, tone = 'friendly', recipientName = '') {
+    const nameStr = recipientName ? ` ${recipientName}` : '';
+    const clean = input.trim();
+
+    switch (tone) {
+      case 'formal':
+        return `Yth. Bapak/Ibu${nameStr},\n\nSehubungan dengan hal tersebut, kami ingin menginformasikan bahwa:\n${clean}\n\nDemikian kami sampaikan, terima kasih atas perhatian dan kerja samanya. 🙏`;
+      case 'persuasive':
+        return `Halo Kak${nameStr}! ✨\n\nKabar baik untuk Anda! ${clean}\n\nYuk jangan sampai terlewatkan. Hubungi kami untuk informasi lebih lanjut ya! 🚀`;
+      case 'apology':
+        return `Halo Kak${nameStr}, kami memohon maaf yang sebesar-besarnya atas ketidaknyamanan terkait:\n${clean}\n\nKami akan segera menindaklanjuti hal ini sebaik mungkin. Terima kasih atas pengertian dan kesabarannya. 🙏`;
+      case 'reminder':
+        return `Halo Kak${nameStr} 👋\n\nSekadar mengingatkan kembali terkait:\n${clean}\n\nMohon konfirmasi jika ada yang perlu dibantu. Terima kasih! ⏰`;
+      case 'short':
+        return `Halo Kak${nameStr}, ${clean}. Terima kasih.`;
+      case 'romantic':
+      case 'romantis':
+        return `Hai sayang${nameStr} ❤️\n\n${clean}\n\nSemoga harimu selalu indah dan bahagia ya! Love you always. 💕✨`;
+      case 'casual':
+      case 'santai':
+        return `Yo${nameStr}! 👋 Mau infoin nih:\n${clean}\n\nGas santuy aja ya, kabarin kalau ada apa-apa! 😎✨`;
+      case 'friendly':
+      default:
+        return `Halo Kak${nameStr}! 😊\n\n${clean}\n\nTerima kasih banyak, semoga harinya menyenangkan! 🙏✨`;
+    }
   }
 
   async generateAutoReply(customPrompt, chatHistory = [], incomingMessage = '', contactName = 'Customer') {
@@ -298,37 +392,75 @@ Format JSON murni:
     return `Halo kak ${contactName}, terima kasih pesannya telah kami terima. Akan segera kami respon secepatnya ya! 😊`;
   }
 
-  async generateVariations(originalText, count = 5) {
+  async generateVariations(originalText, count = 1, tone = 'friendly', recipientName = '') {
     if (!originalText || typeof originalText !== 'string' || originalText.trim() === '') {
       return Array(count).fill('Halo!');
     }
 
     const cleanBase = originalText.trim();
-    const prompt = `Anda adalah asisten WhatsApp profesional. Buatkan tepat ${count} variasi pesan chat yang ramah, santun, unik, dan natural dalam bahasa Indonesia berdasarkan pesan dasar: "${cleanBase}".
-Setiap variasi harus memiliki variasi pilihan kata yang berbeda namun tetap menyampaikan maksud yang sama.
-Format JSON: { "variations": ["variasi 1", "variasi 2", "variasi 3"] }`;
+    const targetCount = Math.min(Math.max(parseInt(count, 10) || 1, 1), 20);
+
+    const toneGuides = {
+      friendly: 'Gaya ramah, akrab, hangat, menggunakan sapaan bersahabat, emoji yang manis, dan mengalir sangat natural.',
+      persuasive: 'Gaya persuasif & copywriting promosi memikat, menonjolkan value/keuntungan, menciptakan rasa antusias, dan call-to-action yang kuat.',
+      formal: 'Gaya sopan, profesional, terstruktur rapi, baku dan elegan, cocok untuk instansi, kantor, atau klien B2B.',
+      short: 'Gaya to the point, padat, ringkas, langsung ke inti pesan tanpa basa-basi berlebih namun tetap sopan.',
+      apology: 'Gaya permohonan maaf yang tulus, berempati tinggi, bertanggung jawab, dan memberikan solusi yang menenangkan.',
+      reminder: 'Gaya pengingat yang jelas, memuat detail penting/waktu/nominal secara rapi dengan penataan yang mudah dipahami.',
+      casual: 'Gaya santai, gaul, asik, santuy, seperti mengobrol akrab dengan sahabat karib tanpa bahasa kaku.',
+      santai: 'Gaya santai, gaul, asik, santuy, seperti mengobrol akrab dengan sahabat karib tanpa bahasa kaku.',
+      romantic: 'Gaya romantis, manis, penuh cinta dan perhatian mendalam, hangat, puitis namun natural dengan emoji cinta yang manis (❤️, 💕, 🌹, 🥰).',
+      romantis: 'Gaya romantis, manis, penuh cinta dan perhatian mendalam, hangat, puitis namun natural dengan emoji cinta yang manis (❤️, 💕, 🌹, 🥰).'
+    };
+
+    const toneInstruction = toneGuides[tone] || toneGuides.friendly;
+    const recipientContext = recipientName ? `Penerima bernama: "${recipientName}". Gunakan sapaan yang sesuai jika cocok.` : '';
+
+    const systemInstruction = `Anda adalah Copywriter & WhatsApp Specialist profesional kelas atas.
+Tugas Anda adalah membuat pesan WhatsApp yang SANGAT MENARIK, persuasif, mengalir natural, tidak kaku, dan terstruktur dengan rapi.
+
+PANDUAN COPYWRITING WHATSAPP:
+1. Gunakan bahasa Indonesia yang luwes, hidup, dan memikat pembaca.
+2. ${toneInstruction}
+3. Manfaatkan format WhatsApp seperti *tebal* pada kata kunci/penawaran penting, pemenggalan paragraf yang rapi dan nyaman dibaca, serta emoji yang pas dan estetik agar chat terlihat hidup dan profesional.
+4. Buat pembuka yang menarik perhatian (hook), isi yang jelas, dan penutup dengan ajakan tindakan (Call-to-Action) yang ramah.
+5. Jika diminta ${targetCount} variasi: Buat ${targetCount} variasi yang BENAR-BENAR BERBEDA hook pembuka, sudut pandang, dan susunan kalimatnya (jangan hanya mengganti satu kata pembuka saja).
+6. ${recipientContext}
+7. JANGAN berikan pengantar atau komentar apapun seperti "Tentu, ini variasinya:". Berikan langsung isi pesan di dalam array JSON.`;
+
+    const prompt = `Pesan dasar dari pengguna:
+"${cleanBase}"
+
+Buatkan tepat ${targetCount} variasi pesan WhatsApp yang berkualitas tinggi, memikat, dan siap dikirim berdasarkan pesan dasar di atas.
+Format JSON murni:
+{
+  "variations": [
+    "Pesan variasi 1...",
+    "Pesan variasi 2..."
+  ]
+}`;
 
     try {
       if (process.env.GEMINI_API_KEY || this.geminiApiKey) {
-        const res = await this._callGeminiRaw(prompt);
+        const res = await this._callGeminiRaw(prompt, systemInstruction);
         if (res && res.variations && Array.isArray(res.variations) && res.variations.length > 0) {
           const valid = res.variations.filter(v => typeof v === 'string' && v.trim().length > 0);
           if (valid.length > 0) {
-            while (valid.length < count) {
+            while (valid.length < targetCount) {
               valid.push(valid[valid.length % valid.length]);
             }
-            return valid.slice(0, count);
+            return valid.slice(0, targetCount);
           }
         }
       } else if (process.env.OPENAI_API_KEY || this.openaiApiKey) {
-        const res = await this._callOpenAIRaw(prompt);
+        const res = await this._callOpenAIRaw(prompt, systemInstruction);
         if (res && res.variations && Array.isArray(res.variations) && res.variations.length > 0) {
           const valid = res.variations.filter(v => typeof v === 'string' && v.trim().length > 0);
           if (valid.length > 0) {
-            while (valid.length < count) {
+            while (valid.length < targetCount) {
               valid.push(valid[valid.length % valid.length]);
             }
-            return valid.slice(0, count);
+            return valid.slice(0, targetCount);
           }
         }
       }
@@ -336,16 +468,10 @@ Format JSON: { "variations": ["variasi 1", "variasi 2", "variasi 3"] }`;
       console.warn('[AI Service] AI variation failed:', e.message);
     }
 
-    const prefixes = ['Halo, ', 'Hai kak, ', 'Halo! ', 'Hai semuanya, ', 'Halo semuanya, ', 'Halo salam hangat, '];
-    const suffixes = [' ya! 😊', ' ya, terima kasih 🙏', ' ✨', ' 👍', ' ya kak 🙏', '! Semoga lancar selalu.'];
     const localVariations = [];
-
-    for (let i = 0; i < count; i++) {
-      const p = prefixes[i % prefixes.length];
-      const s = suffixes[i % suffixes.length];
-      localVariations.push(`${p}${cleanBase}${s}`);
+    for (let i = 0; i < targetCount; i++) {
+      localVariations.push(this._fallbackComposeTemplate(cleanBase, tone, recipientName));
     }
-
     return localVariations;
   }
 

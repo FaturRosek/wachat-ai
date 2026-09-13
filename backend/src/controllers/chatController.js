@@ -303,6 +303,54 @@ const ChatController = {
     }
   },
 
+  async composeMessage(req, res, next) {
+    try {
+      const { prompt, tone = 'friendly', recipientName = '', customInstruction = '' } = req.body;
+      if (!prompt || prompt.trim() === '') {
+        return res.status(400).json({ success: false, message: 'Prompt atau draf pesan diperlukan' });
+      }
+
+      const generatedText = await aiService.composeMessage({
+        prompt,
+        tone,
+        recipientName,
+        customInstruction
+      });
+
+      res.status(200).json({
+        success: true,
+        data: {
+          generatedText,
+          prompt,
+          tone
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async generateVariations(req, res, next) {
+    try {
+      const { message, count = 1, tone = 'friendly', recipientName = '' } = req.body;
+      if (!message || message.trim() === '') {
+        return res.status(400).json({ success: false, message: 'Isi pesan diperlukan' });
+      }
+
+      const totalCount = Math.min(Math.max(parseInt(count, 10) || 1, 1), 20);
+      const variations = await aiService.generateVariations(message.trim(), totalCount, tone, recipientName);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          variations: Array.isArray(variations) && variations.length > 0 ? variations : [message.trim()]
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
   async getAiSetting(req, res, next) {
     try {
       const { jid } = req.params;

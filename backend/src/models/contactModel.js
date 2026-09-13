@@ -471,10 +471,16 @@ const ContactModel = {
     return rows[0] || null;
   },
 
-  async getAllByUser(userId, { search = '', limit = 50, offset = 0 } = {}) {
+  async getAllByUser(userId, { search = '', type = 'personal', limit = 100, offset = 0 } = {}) {
     let filterClause = "WHERE user_id = $1 AND jid NOT LIKE '%@lid' AND phone NOT LIKE '%@lid'";
     let params = [userId];
     let paramIndex = 2;
+
+    if (type === 'personal') {
+      filterClause += " AND COALESCE(is_group, false) = false AND jid NOT LIKE '%@g.us' AND phone NOT LIKE '%@g.us'";
+    } else if (type === 'group') {
+      filterClause += " AND (COALESCE(is_group, false) = true OR jid LIKE '%@g.us' OR phone LIKE '%@g.us')";
+    }
 
     if (search) {
       filterClause += ` AND (name ILIKE $${paramIndex} OR phone ILIKE $${paramIndex})`;

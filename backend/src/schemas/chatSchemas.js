@@ -24,6 +24,7 @@ const sendOutboundMessageSchema = z.object({
     .trim()
     .min(1, 'Isi pesan tidak boleh kosong')
     .max(4096, 'Isi pesan maksimal 4096 karakter'),
+  messages: z.array(z.string().min(1).max(4096)).optional().nullable(),
   contactName: z.string().trim().optional().nullable(),
   sessionName: z.string().trim().optional().default('default'),
   repeatCount: z
@@ -41,16 +42,57 @@ const sendOutboundMessageSchema = z.object({
   useAiVariation: z.boolean().optional().default(false)
 });
 
+const aiToneEnum = z.enum([
+  'friendly',
+  'formal',
+  'professional',
+  'casual',
+  'santai',
+  'romantic',
+  'romantis',
+  'humorous',
+  'concise',
+  'short',
+  'persuasive',
+  'sales',
+  'apology',
+  'reminder'
+]);
+
+const aiVariationsSchema = z.object({
+  message: z
+    .string({ required_error: 'Isi pesan diperlukan' })
+    .trim()
+    .min(1, 'Isi pesan tidak boleh kosong')
+    .max(4000, 'Isi pesan maksimal 4000 karakter'),
+  count: z
+    .union([z.number(), z.string()])
+    .transform((val) => parseInt(String(val), 10) || 1)
+    .pipe(z.number().int().min(1).max(20))
+    .optional()
+    .default(1),
+  tone: aiToneEnum.optional().default('friendly'),
+  recipientName: z.string().trim().max(100).optional().default('')
+});
+
 const aiRewriteSchema = z.object({
   text: z
     .string({ required_error: 'Teks pesan diperlukan' })
     .trim()
     .min(1, 'Teks pesan tidak boleh kosong')
-    .max(2000, 'Teks pesan maksimal 2000 karakter'),
-  tone: z
-    .enum(['friendly', 'professional', 'casual', 'humorous', 'concise', 'formal'])
-    .optional()
-    .default('friendly')
+    .max(4000, 'Teks pesan maksimal 4000 karakter'),
+  tone: aiToneEnum.optional().default('friendly')
+});
+
+const aiComposeSchema = z.object({
+  prompt: z
+    .string({ required_error: 'Prompt / draf pesan diperlukan' })
+    .trim()
+    .min(1, 'Prompt / draf pesan tidak boleh kosong')
+    .max(4000, 'Prompt maksimal 4000 karakter'),
+  tone: aiToneEnum.optional().default('friendly'),
+  recipientName: z.string().trim().max(100).optional().default(''),
+  customInstruction: z.string().trim().max(1000).optional().default('')
 });
 
 const aiContextSchema = z.object({
@@ -104,6 +146,8 @@ module.exports = {
   sendChatMessageSchema,
   sendOutboundMessageSchema,
   aiRewriteSchema,
+  aiComposeSchema,
+  aiVariationsSchema,
   aiContextSchema,
   aiSettingUpdateSchema,
   toggleAutoReplySchema,

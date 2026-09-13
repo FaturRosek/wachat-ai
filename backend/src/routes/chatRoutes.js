@@ -8,6 +8,8 @@ const validate = require('../middleware/validate');
 const {
   sendChatMessageSchema,
   aiRewriteSchema,
+  aiComposeSchema,
+  aiVariationsSchema,
   aiContextSchema,
   aiSettingUpdateSchema,
   toggleAutoReplySchema,
@@ -40,6 +42,8 @@ router.post('/messages/delete-for-me', messageLimiter, validate(deleteForMeSchem
 router.post('/ai/smart-suggestions', aiLimiter, validate(aiContextSchema), ChatController.getSmartSuggestions);
 router.post('/ai/summarize', aiLimiter, validate(aiContextSchema), ChatController.summarizeChat);
 router.post('/ai/rewrite', aiLimiter, validate(aiRewriteSchema), ChatController.rewriteMessage);
+router.post('/ai/compose', aiLimiter, validate(aiComposeSchema), ChatController.composeMessage);
+router.post('/ai/variations', aiLimiter, validate(aiVariationsSchema), ChatController.generateVariations);
 
 router.get('/:jid/messages', ChatController.getChatMessages);
 router.get('/:jid/ai-setting', ChatController.getAiSetting);

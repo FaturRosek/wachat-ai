@@ -16,9 +16,10 @@ const ContactController = {
         });
       }
 
-      const { search, limit = 50, offset = 0 } = req.query;
+      const { search, type = 'personal', limit = 100, offset = 0 } = req.query;
       const { rows, total } = await ContactService.getContacts(req.user.id, {
         search,
+        type,
         limit: parseInt(limit, 10),
         offset: parseInt(offset, 10)
       });

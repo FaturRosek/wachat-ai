@@ -1170,7 +1170,7 @@ class WhatsappService {
       }
     }
 
-    if (!textContent && (isViewOnce || parsed.isViewOnce || key?.isViewOnce || raw?.key?.isViewOnce)) {
+    if (!textContent && (isViewOnce || parsed?.isViewOnce || raw?.key?.isViewOnce || parsed?.key?.isViewOnce)) {
       textContent = "👁️ Foto / Video (Sekali Lihat)";
       mediaType = "view_once";
       mediaCaption = "Pesan Sekali Lihat";

@@ -8,6 +8,7 @@ const MessageController = {
       const {
         phone,
         message,
+        messages: customMessages,
         contactName,
         sessionName = 'default',
         repeatCount = 1,
@@ -15,7 +16,7 @@ const MessageController = {
         useAiVariation = false
       } = req.body;
 
-      if (!phone || !message || message.trim() === '') {
+      if (!phone || (!message && (!customMessages || customMessages.length === 0))) {
         return res.status(400).json({
           success: false,
           message: 'Nomor/grup tujuan dan isi pesan wajib diisi'
@@ -38,10 +39,12 @@ const MessageController = {
         cleanPhone = phoneCheck.formattedPhone;
       }
 
-      if (count <= 1 && !useAiVariation) {
+      const primaryMessage = (Array.isArray(customMessages) && customMessages[0]) ? customMessages[0] : (message || '').trim();
+
+      if (count <= 1 && !useAiVariation && (!customMessages || customMessages.length <= 1)) {
         const result = await WhatsappService.sendTextMessage(req.user.id, {
           toPhone: cleanPhone,
-          messageText: message.trim(),
+          messageText: primaryMessage,
           contactName,
           sessionName
         });
@@ -55,10 +58,14 @@ const MessageController = {
 
       let messageList = [];
 
-      if (useAiVariation) {
+      if (Array.isArray(customMessages) && customMessages.length > 0) {
+        messageList = customMessages.map((m) => (typeof m === 'string' ? m.trim() : '')).filter(Boolean);
+      }
+
+      if (messageList.length === 0 && useAiVariation) {
         try {
           const aiService = require('../services/aiService');
-          const variations = await aiService.generateVariations(message.trim(), count);
+          const variations = await aiService.generateVariations(primaryMessage, count);
           if (Array.isArray(variations) && variations.length > 0) {
             messageList = variations;
           }
@@ -66,7 +73,7 @@ const MessageController = {
       }
 
       if (messageList.length === 0) {
-        messageList = Array(count).fill(message.trim());
+        messageList = Array(count).fill(primaryMessage);
       }
 
       const dispatchJobId = 'job_' + Date.now();

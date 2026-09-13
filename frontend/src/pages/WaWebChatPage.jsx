@@ -25,6 +25,14 @@ import {
   Zap,
   Eye,
   Ban,
+  Pencil,
+  Trash2,
+  ChevronDown,
+  Pin,
+  PinOff,
+  Archive,
+  ArchiveRestore,
+  Reply,
 } from 'lucide-react';
 import apiClient from '../api/apiClient';
 import { useSocket } from '../context/SocketContext';
@@ -49,6 +57,14 @@ export default function WaWebChatPage({ waStatus }) {
   const [filterTab, setFilterTab] = useState('all');
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [previewMedia, setPreviewMedia] = useState(null);
+
+  const [activeMenuMsgId, setActiveMenuMsgId] = useState(null);
+  const [activeMenuChatJid, setActiveMenuChatJid] = useState(null);
+  const [editingMessage, setEditingMessage] = useState(null);
+  const [replyingMessage, setReplyingMessage] = useState(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [deletingMessage, setDeletingMessage] = useState(false);
 
   const [aiSuggestions, setAiSuggestions] = useState([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
@@ -348,6 +364,32 @@ export default function WaWebChatPage({ waStatus }) {
       );
     });
 
+    const unsubEdit = onEvent('message_edited', ({ messageId, newContent, remoteJid, rawData }) => {
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.message_id === messageId || m.id === messageId) {
+            const currentRaw = typeof m.raw_data === 'object' && m.raw_data ? m.raw_data : {};
+            return {
+              ...m,
+              content: newContent,
+              raw_data: {
+                ...currentRaw,
+                ...(rawData || {}),
+                isEdited: true,
+              },
+            };
+          }
+          return m;
+        })
+      );
+    });
+
+    const unsubDeleteForMe = onEvent('message_deleted_for_me', ({ messageId }) => {
+      setMessages((prev) =>
+        prev.filter((m) => m.message_id !== messageId && m.id !== messageId)
+      );
+    });
+
     return () => {
       unsubSync();
       unsubChatSync();
@@ -360,13 +402,80 @@ export default function WaWebChatPage({ waStatus }) {
       unsubPresence();
       unsubAvatarUpdate();
       unsubRevoke();
+      unsubEdit();
+      unsubDeleteForMe();
     };
   }, [activeChat, onEvent]);
+
+  useEffect(() => {
+    const handleGlobalClick = () => {
+      setActiveMenuMsgId(null);
+      setActiveMenuChatJid(null);
+    };
+    window.addEventListener('click', handleGlobalClick);
+    return () => window.removeEventListener('click', handleGlobalClick);
+  }, []);
+
+  const handleTogglePin = async (chat, e) => {
+    if (e) e.stopPropagation();
+    const newPinned = !chat.is_pinned;
+    setActiveMenuChatJid(null);
+
+    setChats((prev) => {
+      const updated = prev.map((c) =>
+        c.jid === chat.jid || c.phone === chat.phone
+          ? { ...c, is_pinned: newPinned, pinned_at: newPinned ? new Date() : null }
+          : c
+      );
+      return updated.sort((a, b) => {
+        if (!!b.is_pinned !== !!a.is_pinned) return (b.is_pinned ? 1 : 0) - (a.is_pinned ? 1 : 0);
+        return new Date(b.last_message_time || 0) - new Date(a.last_message_time || 0);
+      });
+    });
+
+    try {
+      await apiClient.post('/chats/pin', {
+        jid: chat.jid || chat.phone,
+        pinned: newPinned,
+      });
+    } catch (err) {
+      console.error('Failed to toggle pin:', err);
+      fetchChats();
+    }
+  };
+
+  const handleToggleArchive = async (chat, e) => {
+    if (e) e.stopPropagation();
+    const newArchived = !chat.is_archived;
+    setActiveMenuChatJid(null);
+
+    if (activeChat && (activeChat.jid === chat.jid || activeChat.phone === chat.phone)) {
+      if (newArchived && filterTab !== 'archived') {
+        setActiveChat(null);
+        setMessages([]);
+      }
+    }
+
+    try {
+      await apiClient.post('/chats/archive', {
+        jid: chat.jid || chat.phone,
+        archived: newArchived,
+      });
+      fetchChats();
+    } catch (err) {
+      console.error('Failed to toggle archive:', err);
+      fetchChats();
+    }
+  };
 
   const handleSelectChat = async (chat) => {
     setActiveChat(chat);
     setLoadingMessages(true);
     setAiSuggestions([]);
+    setEditingMessage(null);
+    setReplyingMessage(null);
+    setActiveMenuMsgId(null);
+    setActiveMenuChatJid(null);
     try {
       const res = await apiClient.get(`/chats/${encodeURIComponent(chat.jid || chat.phone)}/messages`);
       if (res.data.success && res.data.data) {
@@ -406,12 +515,125 @@ export default function WaWebChatPage({ waStatus }) {
     }
   };
 
+  const handleStartEdit = (msg) => {
+    setEditingMessage(msg);
+    setReplyingMessage(null);
+    setInputText(msg.content || '');
+    setActiveMenuMsgId(null);
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMessage(null);
+    setInputText('');
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingMessage || !inputText.trim() || !activeChat || savingEdit) return;
+
+    const newText = inputText.trim();
+    const targetMsgId = editingMessage.message_id || editingMessage.id;
+    setSavingEdit(true);
+
+    try {
+      const res = await apiClient.post('/chats/messages/edit', {
+        jid: activeChat.jid || activeChat.phone,
+        messageId: targetMsgId,
+        newText,
+      });
+
+      if (res.data.success) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            (m.message_id === targetMsgId || m.id === targetMsgId)
+              ? {
+                  ...m,
+                  content: newText,
+                  raw_data: {
+                    ...(typeof m.raw_data === 'object' && m.raw_data ? m.raw_data : {}),
+                    isEdited: true,
+                    editedAt: new Date(),
+                  },
+                }
+              : m
+          )
+        );
+        handleCancelEdit();
+      }
+    } catch (err) {
+      console.error('Failed to edit message:', err);
+      alert(err.response?.data?.message || 'Gagal mengedit pesan');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirm || !activeChat || deletingMessage) return;
+
+    const targetMsg = deleteConfirm.message;
+    const targetId = targetMsg.message_id || targetMsg.id;
+    setDeletingMessage(true);
+
+    try {
+      if (deleteConfirm.type === 'everyone') {
+        const res = await apiClient.post('/chats/messages/delete-for-everyone', {
+          jid: activeChat.jid || activeChat.phone,
+          messageId: targetId,
+        });
+
+        if (res.data.success) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              (m.message_id === targetId || m.id === targetId)
+                ? {
+                    ...m,
+                    raw_data: {
+                      ...(typeof m.raw_data === 'object' && m.raw_data ? m.raw_data : {}),
+                      isDeletedForEveryone: true,
+                    },
+                  }
+                : m
+            )
+          );
+        }
+      } else {
+        const res = await apiClient.post('/chats/messages/delete-for-me', {
+          messageId: targetId,
+        });
+
+        if (res.data.success) {
+          setMessages((prev) =>
+            prev.filter((m) => m.message_id !== targetId && m.id !== targetId)
+          );
+        }
+      }
+      setDeleteConfirm(null);
+    } catch (err) {
+      console.error('Failed to delete message:', err);
+      alert(err.response?.data?.message || 'Gagal menghapus pesan');
+    } finally {
+      setDeletingMessage(false);
+    }
+  };
+
   const handleSendMessage = async (e) => {
     if (e) e.preventDefault();
+    if (editingMessage) {
+      handleSaveEdit();
+      return;
+    }
     if (!inputText.trim() || !activeChat || sending) return;
 
     const messageText = inputText.trim();
+    const targetReplying = replyingMessage;
     setInputText('');
+    setReplyingMessage(null);
     setSending(true);
 
     const tempId = 'temp_' + Date.now();
@@ -423,6 +645,14 @@ export default function WaWebChatPage({ waStatus }) {
       direction: 'OUTGOING',
       status: 'PENDING',
       from_me: true,
+      quoted_message: targetReplying ? {
+        messageId: targetReplying.message_id || targetReplying.id,
+        senderName: targetReplying.from_me ? 'Anda' : (targetReplying.sender_name || (targetReplying.phone ? `+${targetReplying.phone}` : 'Kontak')),
+        senderPhone: targetReplying.phone || null,
+        content: targetReplying.content || (targetReplying.media_type === 'image' ? '📷 Foto' : (targetReplying.media_type === 'video' ? '🎥 Video' : (targetReplying.media_type === 'voice' || targetReplying.media_type === 'audio' ? '🎤 Pesan Suara' : 'Pesan'))),
+        mediaType: targetReplying.media_type || 'text',
+        fromMe: !!targetReplying.from_me,
+      } : null,
       sent_at: new Date(),
     };
 
@@ -433,6 +663,7 @@ export default function WaWebChatPage({ waStatus }) {
       const res = await apiClient.post('/chats/send', {
         jid: activeChat.jid || activeChat.phone,
         message: messageText,
+        quotedMessageId: targetReplying ? (targetReplying.message_id || targetReplying.id) : null,
       });
 
       if (res.data.success && res.data.data) {
@@ -462,7 +693,9 @@ export default function WaWebChatPage({ waStatus }) {
 
   const handleSendVoiceNote = async (audioBlob) => {
     if (!activeChat || !audioBlob) return;
+    const targetReplying = replyingMessage;
     setIsRecordingAudio(false);
+    setReplyingMessage(null);
 
     const tempId = 'temp_vn_' + Date.now();
     const localUrl = URL.createObjectURL(audioBlob);
@@ -477,6 +710,14 @@ export default function WaWebChatPage({ waStatus }) {
       direction: 'OUTGOING',
       status: 'PENDING',
       from_me: true,
+      quoted_message: targetReplying ? {
+        messageId: targetReplying.message_id || targetReplying.id,
+        senderName: targetReplying.from_me ? 'Anda' : (targetReplying.sender_name || (targetReplying.phone ? `+${targetReplying.phone}` : 'Kontak')),
+        senderPhone: targetReplying.phone || null,
+        content: targetReplying.content || (targetReplying.media_type === 'image' ? '📷 Foto' : (targetReplying.media_type === 'video' ? '🎥 Video' : (targetReplying.media_type === 'voice' || targetReplying.media_type === 'audio' ? '🎤 Pesan Suara' : 'Pesan'))),
+        mediaType: targetReplying.media_type || 'text',
+        fromMe: !!targetReplying.from_me,
+      } : null,
       sent_at: new Date(),
     };
 
@@ -487,6 +728,9 @@ export default function WaWebChatPage({ waStatus }) {
     const ext = audioBlob.type.includes('webm') ? 'webm' : (audioBlob.type.includes('ogg') ? 'ogg' : 'mp4');
     formData.append('audio', audioBlob, `voice_${Date.now()}.${ext}`);
     formData.append('jid', activeChat.jid || activeChat.phone);
+    if (targetReplying) {
+      formData.append('quotedMessageId', targetReplying.message_id || targetReplying.id);
+    }
 
     try {
       const res = await apiClient.post('/chats/send-voice', formData, {
@@ -652,6 +896,7 @@ export default function WaWebChatPage({ waStatus }) {
               { id: 'all', label: 'Semua' },
               { id: 'unread', label: unreadChatsCount > 0 ? `Belum dibaca ${unreadChatsCount}` : 'Belum dibaca' },
               { id: 'groups', label: groupChatsCount > 0 ? `Grup ${groupChatsCount}` : 'Grup' },
+              { id: 'archived', label: '📦 Diarsipkan' },
               { id: 'ai', label: '🤖 AI Aktif' },
             ].map((tab) => (
               <button
@@ -670,6 +915,13 @@ export default function WaWebChatPage({ waStatus }) {
         </div>
 
         <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-[#222d34] custom-scrollbar">
+          {filterTab === 'archived' && (
+            <div className="px-4 py-2 bg-slate-100 dark:bg-[#182229] border-b border-slate-200 dark:border-[#2a3942] flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-300">
+              <Archive className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <span>Obrolan Diarsipkan</span>
+            </div>
+          )}
+
           {loadingChats ? (
             <div className="p-8 text-center text-xs text-slate-400">
               <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
@@ -678,10 +930,14 @@ export default function WaWebChatPage({ waStatus }) {
           ) : chats.length === 0 ? (
             <div className="p-8 text-center text-xs text-slate-400">
               <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-40 text-slate-400" />
-              <p className="font-bold text-slate-700 dark:text-slate-300 mb-1">Tidak Ada Obrolan</p>
+              <p className="font-bold text-slate-700 dark:text-slate-300 mb-1">
+                {filterTab === 'archived' ? 'Tidak Ada Chat Diarsipkan' : 'Tidak Ada Obrolan'}
+              </p>
               <p className="text-[11px]">
                 {searchQuery
                   ? 'Tidak ada hasil obrolan yang cocok'
+                  : filterTab === 'archived'
+                  ? 'Gunakan menu opsi pada obrolan untuk mengarsipkan chat'
                   : 'Klik tombol + di atas untuk memulai obrolan baru'}
               </p>
             </div>
@@ -690,9 +946,11 @@ export default function WaWebChatPage({ waStatus }) {
               const isSelected = activeChat?.jid === chat.jid || (activeChat?.phone && activeChat.phone === chat.phone);
               const isTyping = !!(typingMap[chat.jid] || (chat.phone && typingMap[chat.phone]) || (chat.jid && typingMap[chat.jid.replace(/[^0-9]/g, '')]));
               const hasUnread = (chat.unread_count || 0) > 0;
+              const chatKey = chat.jid || chat.phone;
+
               return (
                 <div
-                  key={chat.id || chat.jid || chat.phone}
+                  key={chat.id || chatKey}
                   onClick={() => handleSelectChat(chat)}
                   className={`flex items-center gap-3 px-3.5 py-3 cursor-pointer transition relative group ${
                     isSelected
@@ -734,13 +992,19 @@ export default function WaWebChatPage({ waStatus }) {
                       <h4 className="font-bold text-xs sm:text-sm text-slate-800 dark:text-slate-100 truncate">
                         {chat.name || `+${chat.phone}`}
                       </h4>
-                      <span
-                        className={`text-[11px] whitespace-nowrap ml-2 ${
-                          hasUnread ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400'
-                        }`}
-                      >
-                        {formatChatTime(chat.last_message_time)}
-                      </span>
+
+                      <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">
+                        {chat.is_pinned && (
+                          <Pin className="w-3.5 h-3.5 text-slate-400 fill-slate-400/40 -rotate-45 flex-shrink-0" />
+                        )}
+                        <span
+                          className={`text-[11px] whitespace-nowrap ${
+                            hasUnread ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400'
+                          }`}
+                        >
+                          {formatChatTime(chat.last_message_time)}
+                        </span>
+                      </div>
                     </div>
 
                     <div className="flex items-center justify-between gap-2">
@@ -752,13 +1016,72 @@ export default function WaWebChatPage({ waStatus }) {
                         )}
                       </div>
 
-                      {hasUnread && (
-                        <span className="flex-shrink-0 bg-emerald-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-4 text-center shadow-xs">
-                          {chat.unread_count}
-                        </span>
-                      )}
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {hasUnread && (
+                          <span className="bg-emerald-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-4 text-center shadow-xs">
+                            {chat.unread_count}
+                          </span>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveMenuChatJid(activeMenuChatJid === chatKey ? null : chatKey);
+                          }}
+                          className={`p-1 rounded-md transition-all text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-[#2a3942] ${
+                            activeMenuChatJid === chatKey
+                              ? 'opacity-100 bg-slate-200 dark:bg-[#2a3942]'
+                              : 'opacity-0 group-hover:opacity-100'
+                          }`}
+                          title="Menu Chat"
+                        >
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
+
+                  {activeMenuChatJid === chatKey && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute right-3 top-10 z-40 py-1.5 rounded-xl bg-white dark:bg-[#233138] border border-slate-200 dark:border-[#2a3942] shadow-2xl text-xs w-48 animate-in fade-in zoom-in-95 duration-100"
+                    >
+                      <button
+                        onClick={(e) => handleToggleArchive(chat, e)}
+                        className="w-full px-3.5 py-2.5 text-left flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#182229] transition font-medium"
+                      >
+                        {chat.is_archived ? (
+                          <>
+                            <ArchiveRestore className="w-4 h-4 text-slate-400" />
+                            <span>Buka arsip</span>
+                          </>
+                        ) : (
+                          <>
+                            <Archive className="w-4 h-4 text-slate-400" />
+                            <span>Arsipkan chat</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        onClick={(e) => handleTogglePin(chat, e)}
+                        className="w-full px-3.5 py-2.5 text-left flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#182229] transition font-medium"
+                      >
+                        {chat.is_pinned ? (
+                          <>
+                            <PinOff className="w-4 h-4 text-slate-400" />
+                            <span>Lepas sematan</span>
+                          </>
+                        ) : (
+                          <>
+                            <Pin className="w-4 h-4 text-slate-400" />
+                            <span>Sematkan chat</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })
@@ -889,19 +1212,42 @@ export default function WaWebChatPage({ waStatus }) {
             ) : (
               messages.map((msg, index) => {
                 const isMe = msg.from_me || msg.direction === 'OUTGOING';
+                const msgKey = msg.message_id || msg.id || index;
 
                 return (
                   <div
                     key={msg.id || index}
-                    className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
+                    id={`msg-${msg.message_id || msg.id || index}`}
+                    className={`flex flex-col transition-all duration-300 rounded-2xl p-0.5 ${isMe ? 'items-end' : 'items-start'}`}
                   >
                     <div
-                      className={`max-w-[85%] sm:max-w-[70%] md:max-w-[65%] rounded-2xl px-3.5 py-2 text-xs shadow-xs relative leading-relaxed ${
+                      onDoubleClick={() => {
+                        setReplyingMessage(msg);
+                        setEditingMessage(null);
+                        textareaRef.current?.focus();
+                      }}
+                      className={`max-w-[85%] sm:max-w-[70%] md:max-w-[65%] rounded-2xl px-3.5 py-2 text-xs shadow-xs relative leading-relaxed group/bubble ${
                         isMe
                           ? 'bg-blue-600 text-white rounded-tr-xs shadow-blue-500/10'
                           : 'bg-white dark:bg-[#202c33] text-slate-800 dark:text-slate-100 rounded-tl-xs border border-slate-200/80 dark:border-[#2a3942]'
                       }`}
                     >
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveMenuMsgId(activeMenuMsgId === msgKey ? null : msgKey);
+                        }}
+                        className={`absolute top-1.5 right-1.5 p-0.5 rounded-md transition-all z-10 ${
+                          activeMenuMsgId === msgKey
+                            ? 'opacity-100 bg-black/25 text-white'
+                            : 'opacity-0 group-hover/bubble:opacity-100 hover:bg-black/15 text-current'
+                        }`}
+                        title="Pilihan pesan"
+                      >
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      </button>
+
                       {activeChat.is_group && !isMe && msg.sender_name && (
                         <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 mb-0.5">
                           {msg.sender_name}
@@ -913,14 +1259,107 @@ export default function WaWebChatPage({ waStatus }) {
                           (typeof msg.raw_data === 'string' && msg.raw_data.includes('"isDeletedForEveryone":true')) || 
                           msg.status === 'REVOKED';
 
+                        const isEdited = msg.raw_data?.isEdited ||
+                          (typeof msg.raw_data === 'string' && msg.raw_data.includes('"isEdited":true')) ||
+                          !!msg.raw_data?.editedAt;
+
                         const isVo = msg.raw_data?.isViewOnce || 
                           (typeof msg.raw_data === 'string' && msg.raw_data.includes('"isViewOnce":true')) || 
                           msg.content?.includes('(Sekali Lihat)') || 
                           msg.media_caption?.includes('Sekali Lihat') || 
                           msg.content?.includes('👁️');
 
+                        let qMsg = msg.quoted_message;
+                        if (typeof qMsg === 'string') {
+                          try { qMsg = JSON.parse(qMsg); } catch (e) {}
+                        }
+
                         return (
                           <>
+                            {activeMenuMsgId === msgKey && (
+                              <div
+                                onClick={(e) => e.stopPropagation()}
+                                className={`absolute top-7 z-30 py-1.5 rounded-xl bg-white dark:bg-[#233138] border border-slate-200 dark:border-[#2a3942] shadow-2xl text-xs w-48 animate-in fade-in zoom-in-95 duration-100 ${
+                                  isMe ? 'right-0' : 'left-0 sm:right-auto sm:left-0'
+                                }`}
+                              >
+                                <button
+                                  onClick={() => {
+                                    setActiveMenuMsgId(null);
+                                    setReplyingMessage(msg);
+                                    setEditingMessage(null);
+                                    if (textareaRef.current) textareaRef.current.focus();
+                                  }}
+                                  className="w-full px-3.5 py-2 text-left flex items-center gap-2 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#182229] transition font-medium"
+                                >
+                                  <Reply className="w-3.5 h-3.5 text-blue-500" />
+                                  <span>Balas</span>
+                                </button>
+
+                                {isMe && !isDeleted && msg.media_type === 'text' && (
+                                  <button
+                                    onClick={() => handleStartEdit(msg)}
+                                    className="w-full px-3.5 py-2 text-left flex items-center gap-2 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#182229] transition"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5 text-blue-500" />
+                                    <span>Edit pesan</span>
+                                  </button>
+                                )}
+
+                                {isMe && !isDeleted && (
+                                  <button
+                                    onClick={() => {
+                                      setActiveMenuMsgId(null);
+                                      setDeleteConfirm({ type: 'everyone', message: msg });
+                                    }}
+                                    className="w-full px-3.5 py-2 text-left flex items-center gap-2 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition font-medium"
+                                  >
+                                    <Ban className="w-3.5 h-3.5 text-rose-500" />
+                                    <span>Hapus untuk semua</span>
+                                  </button>
+                                )}
+
+                                <button
+                                  onClick={() => {
+                                    setActiveMenuMsgId(null);
+                                    setDeleteConfirm({ type: 'me', message: msg });
+                                  }}
+                                  className="w-full px-3.5 py-2 text-left flex items-center gap-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#182229] transition"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 text-slate-400" />
+                                  <span>Hapus untuk saya</span>
+                                </button>
+                              </div>
+                            )}
+
+                            {qMsg && (
+                              <div
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (qMsg.messageId) {
+                                    const targetEl = document.getElementById(`msg-${qMsg.messageId}`);
+                                    if (targetEl) {
+                                      targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                      targetEl.classList.add('ring-2', 'ring-blue-400', 'bg-blue-100/60', 'transition-all');
+                                      setTimeout(() => targetEl.classList.remove('ring-2', 'ring-blue-400', 'bg-blue-100/60'), 1600);
+                                    }
+                                  }
+                                }}
+                                className={`mb-2 p-2 rounded-xl text-[11px] cursor-pointer transition flex flex-col border-l-4 ${
+                                  isMe
+                                    ? 'bg-blue-700/60 border-white/80 text-white hover:bg-blue-700/80'
+                                    : 'bg-slate-100 dark:bg-[#182229] border-blue-600 text-slate-700 dark:text-slate-200 hover:bg-slate-200/70 dark:hover:bg-[#1f2c34]'
+                                }`}
+                              >
+                                <span className={`font-bold text-[10.5px] ${isMe ? 'text-blue-100' : 'text-blue-600 dark:text-blue-400'}`}>
+                                  {qMsg.senderName || (qMsg.fromMe ? 'Anda' : (qMsg.senderPhone ? `+${qMsg.senderPhone}` : 'Kontak'))}
+                                </span>
+                                <span className="truncate mt-0.5 opacity-90 text-[11px]">
+                                  {qMsg.content || (qMsg.mediaType === 'image' ? '📷 Foto' : (qMsg.mediaType === 'video' ? '🎥 Video' : (qMsg.mediaType === 'voice' ? '🎤 Pesan Suara' : 'Pesan')))}
+                                </span>
+                              </div>
+                            )}
+
                             {isDeleted && (
                               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-500/15 dark:bg-rose-950/40 border border-rose-400/30 text-rose-600 dark:text-rose-300 font-bold text-[10px] mb-2 select-none w-fit">
                                 <Ban className="w-3.5 h-3.5 text-rose-500 flex-shrink-0" />
@@ -1000,40 +1439,44 @@ export default function WaWebChatPage({ waStatus }) {
 
                               return <p className="whitespace-pre-wrap break-words">{msg.content}</p>;
                             })()}
+
+                            <div
+                              className={`flex items-center justify-end gap-1.5 mt-1 text-[9px] select-none ${
+                                isMe ? 'text-blue-100' : 'text-slate-400 dark:text-slate-400'
+                              }`}
+                            >
+                              {isEdited && (
+                                <span className="italic opacity-80 text-[8.5px]">diedit</span>
+                              )}
+
+                              <span>
+                                {msg.sent_at
+                                  ? new Date(msg.sent_at).toLocaleTimeString([], {
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })
+                                  : ''}
+                              </span>
+
+                              {isMe && (
+                                <span>
+                                  {msg.status === 'READ' ? (
+                                    <CheckCheck className="w-3.5 h-3.5 text-emerald-300" />
+                                  ) : msg.status === 'DELIVERED' ? (
+                                    <CheckCheck className="w-3.5 h-3.5 text-blue-200" />
+                                  ) : msg.status === 'SENT' ? (
+                                    <Check className="w-3.5 h-3.5 text-blue-200" />
+                                  ) : msg.status === 'FAILED' ? (
+                                    <span className="text-red-300 font-bold">!</span>
+                                  ) : (
+                                    <Clock className="w-3 h-3 text-blue-200" />
+                                  )}
+                                </span>
+                              )}
+                            </div>
                           </>
                         );
                       })()}
-
-                      <div
-                        className={`flex items-center justify-end gap-1 mt-1 text-[9px] select-none ${
-                          isMe ? 'text-blue-100' : 'text-slate-400 dark:text-slate-400'
-                        }`}
-                      >
-                        <span>
-                          {msg.sent_at
-                            ? new Date(msg.sent_at).toLocaleTimeString([], {
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })
-                            : ''}
-                        </span>
-
-                        {isMe && (
-                          <span>
-                            {msg.status === 'READ' ? (
-                              <CheckCheck className="w-3.5 h-3.5 text-emerald-300" />
-                            ) : msg.status === 'DELIVERED' ? (
-                              <CheckCheck className="w-3.5 h-3.5 text-blue-200" />
-                            ) : msg.status === 'SENT' ? (
-                              <Check className="w-3.5 h-3.5 text-blue-200" />
-                            ) : msg.status === 'FAILED' ? (
-                              <span className="text-red-300 font-bold">!</span>
-                            ) : (
-                              <Clock className="w-3 h-3 text-blue-200" />
-                            )}
-                          </span>
-                        )}
-                      </div>
                     </div>
                   </div>
                 );
@@ -1074,6 +1517,64 @@ export default function WaWebChatPage({ waStatus }) {
               )}
             </div>
           </div>
+
+          {replyingMessage && (
+            <div className="px-4 py-2 bg-slate-100 dark:bg-[#202c33] border-t border-slate-200 dark:border-[#2a3942] flex items-center justify-between text-xs animate-in slide-in-from-bottom-2">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1 border-l-4 border-blue-600 pl-2.5 py-0.5">
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold text-[11px] text-blue-600 dark:text-blue-400">
+                    Membalas {replyingMessage.from_me ? 'Anda' : (replyingMessage.sender_name || (replyingMessage.phone ? `+${replyingMessage.phone}` : 'Kontak'))}
+                  </p>
+                  <p className="text-[11px] text-slate-600 dark:text-slate-300 truncate">
+                    {replyingMessage.media_type === 'image' ? '📷 Foto' :
+                     replyingMessage.media_type === 'video' ? '🎥 Video' :
+                     replyingMessage.media_type === 'voice' || replyingMessage.media_type === 'audio' ? '🎤 Pesan Suara' :
+                     replyingMessage.media_type === 'document' ? '📄 Dokumen' :
+                     replyingMessage.content}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReplyingMessage(null)}
+                className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-[#2a3942] rounded-lg transition ml-2"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {editingMessage && (
+            <div className="px-4 py-2.5 bg-blue-50/95 dark:bg-blue-950/70 border-t border-blue-200 dark:border-blue-800 flex items-center justify-between text-xs animate-in slide-in-from-bottom-2">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <div className="p-1.5 rounded-lg bg-blue-600 text-white flex-shrink-0">
+                  <Pencil className="w-3.5 h-3.5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold text-[11px] text-blue-700 dark:text-blue-300">Mengedit Pesan</p>
+                  <p className="text-[11px] text-slate-600 dark:text-slate-400 truncate">{editingMessage.content}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 ml-2">
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveEdit}
+                  disabled={savingEdit || !inputText.trim()}
+                  className="px-3 py-1 rounded-lg text-[11px] font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition disabled:opacity-50 flex items-center gap-1"
+                >
+                  <Check className="w-3 h-3" />
+                  <span>{savingEdit ? 'Menyimpan...' : 'Simpan'}</span>
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="p-3 bg-white dark:bg-[#202c33] border-t border-slate-200 dark:border-[#2a3942] flex items-center gap-2">
             {isRecordingAudio ? (
@@ -1129,10 +1630,10 @@ export default function WaWebChatPage({ waStatus }) {
                 {inputText.trim() ? (
                   <button
                     onClick={handleSendMessage}
-                    disabled={sending}
+                    disabled={sending || savingEdit}
                     className="p-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/30 transition active:scale-95 flex-shrink-0"
                   >
-                    <Send className="w-4 h-4" />
+                    {editingMessage ? <Check className="w-4 h-4" /> : <Send className="w-4 h-4" />}
                   </button>
                 ) : (
                   <button
@@ -1221,6 +1722,63 @@ export default function WaWebChatPage({ waStatus }) {
           <div className="flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
             <span>Pesan pribadi Anda terenkripsi secara end-to-end</span>
+          </div>
+        </div>
+      )}
+
+      {deleteConfirm && (
+        <div 
+          onClick={() => setDeleteConfirm(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white dark:bg-[#111b21] rounded-2xl max-w-sm w-full p-5 border border-slate-200 dark:border-[#2a3942] shadow-2xl animate-in zoom-in-95 duration-150"
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                deleteConfirm.type === 'everyone' ? 'bg-rose-500/20 text-rose-500' : 'bg-slate-500/20 text-slate-500'
+              }`}>
+                {deleteConfirm.type === 'everyone' ? <Ban className="w-5 h-5" /> : <Trash2 className="w-5 h-5" />}
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-slate-800 dark:text-slate-100">
+                  {deleteConfirm.type === 'everyone' ? 'Hapus untuk Semua Orang?' : 'Hapus untuk Saya?'}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  {deleteConfirm.type === 'everyone'
+                    ? 'Pesan ini akan ditarik dari semua orang di percakapan WhatsApp.'
+                    : 'Pesan ini hanya akan dihapus dari tampilan Anda.'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 mt-5">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirm(null)}
+                disabled={deletingMessage}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#202c33] rounded-xl transition"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={deletingMessage}
+                className={`px-4 py-2 text-xs font-bold text-white rounded-xl shadow-xs transition flex items-center gap-1.5 ${
+                  deleteConfirm.type === 'everyone'
+                    ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/20'
+                    : 'bg-slate-700 hover:bg-slate-800'
+                }`}
+              >
+                {deletingMessage ? (
+                  <span>Menghapus...</span>
+                ) : (
+                  <span>{deleteConfirm.type === 'everyone' ? 'Tarik Pesan' : 'Hapus'}</span>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

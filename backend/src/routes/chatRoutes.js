@@ -10,7 +10,12 @@ const {
   aiRewriteSchema,
   aiContextSchema,
   aiSettingUpdateSchema,
-  toggleAutoReplySchema
+  toggleAutoReplySchema,
+  editChatMessageSchema,
+  deleteForEveryoneSchema,
+  deleteForMeSchema,
+  togglePinSchema,
+  toggleArchiveSchema
 } = require('../schemas/chatSchemas');
 
 const upload = multer({
@@ -23,8 +28,15 @@ router.get('/', ChatController.getChats);
 router.post('/sync', ChatController.syncChats);
 router.get('/logs/calls', ChatController.getCallLogs);
 
+router.post('/pin', validate(togglePinSchema), ChatController.togglePin);
+router.post('/archive', validate(toggleArchiveSchema), ChatController.toggleArchive);
+
 router.post('/send', messageLimiter, validate(sendChatMessageSchema), ChatController.sendMessage);
 router.post('/send-voice', messageLimiter, upload.single('audio'), ChatController.sendVoiceNote);
+router.post('/messages/edit', messageLimiter, validate(editChatMessageSchema), ChatController.editMessage);
+router.post('/messages/delete-for-everyone', messageLimiter, validate(deleteForEveryoneSchema), ChatController.deleteForEveryone);
+router.post('/messages/delete-for-me', messageLimiter, validate(deleteForMeSchema), ChatController.deleteForMe);
+
 router.post('/ai/smart-suggestions', aiLimiter, validate(aiContextSchema), ChatController.getSmartSuggestions);
 router.post('/ai/summarize', aiLimiter, validate(aiContextSchema), ChatController.summarizeChat);
 router.post('/ai/rewrite', aiLimiter, validate(aiRewriteSchema), ChatController.rewriteMessage);

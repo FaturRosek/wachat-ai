@@ -51,7 +51,7 @@ const ContactModel = {
     return rows[0];
   },
 
-  async upsertChat(userId, { jid, name = null, phone = null, avatarUrl = null, isGroup = false, unreadCount = 0, lastMessageText = null, lastMessageTime = null }) {
+  async upsertChat(userId, { jid, name = null, phone = null, avatarUrl = null, isGroup = false, unreadCount = 0, lastMessageText = null, lastMessageTime = null, isPinned = undefined, pinnedAt = null, isArchived = undefined }) {
     const isGrp = isGroup || (jid && jid.endsWith('@g.us')) || (phone && String(phone).endsWith('@g.us'));
     const cleanPhone = isGrp ? (phone || jid) : (phone ? String(phone).replace(/[^0-9]/g, '') : (jid ? String(jid).replace(/[^0-9]/g, '') : ''));
     const cleanJid = jid || (isGrp ? cleanPhone : `${cleanPhone}@s.whatsapp.net`);
@@ -96,6 +96,20 @@ const ContactModel = {
     if (lastMessageTime) {
       updates.push(`last_message_time = $${pIdx++}`);
       vals.push(lastMessageTime);
+    }
+    if (typeof isPinned === 'boolean') {
+      updates.push(`is_pinned = $${pIdx++}`);
+      vals.push(isPinned);
+      if (isPinned) {
+        updates.push(`pinned_at = $${pIdx++}`);
+        vals.push(pinnedAt || new Date());
+      } else {
+        updates.push(`pinned_at = NULL`);
+      }
+    }
+    if (typeof isArchived === 'boolean') {
+      updates.push(`is_archived = $${pIdx++}`);
+      vals.push(isArchived);
     }
 
     if (updates.length > 0) {
@@ -303,19 +317,27 @@ const ContactModel = {
       whereConditions.push(`(c.name ILIKE $${pIdx} OR c.phone ILIKE $${pIdx} OR c.last_message_text ILIKE $${pIdx})`);
       params.push(`%${search}%`);
       pIdx++;
-    } else {
+    } else if (filter !== 'archived') {
       whereConditions.push(`(
         (c.last_message_time IS NOT NULL AND c.last_message_time >= CURRENT_TIMESTAMP - INTERVAL '7 days')
         OR COALESCE(c.unread_count, 0) > 0
+        OR COALESCE(c.is_pinned, false) = true
       )`);
     }
 
     if (filter === 'unread') {
       whereConditions.push(`COALESCE(c.unread_count, 0) > 0`);
+      whereConditions.push(`COALESCE(c.is_archived, false) = false`);
     } else if (filter === 'groups') {
       whereConditions.push(`c.is_group = true`);
+      whereConditions.push(`COALESCE(c.is_archived, false) = false`);
     } else if (filter === 'ai') {
       whereConditions.push(`ai.auto_reply_enabled = true`);
+      whereConditions.push(`COALESCE(c.is_archived, false) = false`);
+    } else if (filter === 'archived') {
+      whereConditions.push(`COALESCE(c.is_archived, false) = true`);
+    } else {
+      whereConditions.push(`COALESCE(c.is_archived, false) = false`);
     }
 
     const whereClause = whereConditions.join(' AND ');
@@ -324,18 +346,52 @@ const ContactModel = {
       SELECT 
         c.id, c.user_id, c.name, c.phone, c.jid, c.avatar_url, c.is_group, c.about,
         c.unread_count, c.last_message_text, c.last_message_time, c.created_at, c.updated_at,
+        COALESCE(c.is_pinned, false) AS is_pinned, c.pinned_at,
+        COALESCE(c.is_archived, false) AS is_archived,
         COALESCE(ai.auto_reply_enabled, false) AS auto_reply_enabled,
         ai.custom_prompt, ai.tone, ai.notes
       FROM contacts c
       LEFT JOIN chat_ai_settings ai ON c.user_id = ai.user_id AND (c.jid = ai.jid OR c.phone = ai.jid)
       WHERE ${whereClause}
       ORDER BY 
+        COALESCE(c.is_pinned, false) DESC,
+        c.pinned_at DESC NULLS LAST,
         c.last_message_time DESC NULLS LAST,
         c.updated_at DESC
     `;
 
     const { rows } = await query(sql, params);
     return rows;
+  },
+
+  async togglePin(userId, jid, isPinned) {
+    const isGrp = jid.endsWith('@g.us');
+    const cleanPhone = isGrp ? jid : jid.replace(/[^0-9]/g, '');
+    const sql = `
+      UPDATE contacts
+      SET is_pinned = $1,
+          pinned_at = CASE WHEN $1 = true THEN CURRENT_TIMESTAMP ELSE NULL END,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE user_id = $2 AND (jid = $3 OR phone = $4 OR phone = $3)
+      RETURNING *
+    `;
+    const { rows } = await query(sql, [isPinned, userId, jid, cleanPhone]);
+    return rows[0] || null;
+  },
+
+  async toggleArchive(userId, jid, isArchived) {
+    const isGrp = jid.endsWith('@g.us');
+    const cleanPhone = isGrp ? jid : jid.replace(/[^0-9]/g, '');
+    const sql = `
+      UPDATE contacts
+      SET is_archived = $1,
+          is_pinned = CASE WHEN $1 = true THEN false ELSE is_pinned END,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE user_id = $2 AND (jid = $3 OR phone = $4 OR phone = $3)
+      RETURNING *
+    `;
+    const { rows } = await query(sql, [isArchived, userId, jid, cleanPhone]);
+    return rows[0] || null;
   },
 
   async findById(id, userId) {

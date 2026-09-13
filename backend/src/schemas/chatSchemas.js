@@ -10,6 +10,7 @@ const sendChatMessageSchema = z.object({
     .trim()
     .min(1, 'Isi pesan tidak boleh kosong')
     .max(4096, 'Isi pesan maksimal 4096 karakter'),
+  quotedMessageId: z.string().trim().optional().nullable(),
   sessionName: z.string().trim().optional().default('default')
 });
 
@@ -89,6 +90,16 @@ const deleteForMeSchema = z.object({
   messageId: z.string({ required_error: 'Message ID wajib diisi' }).trim().min(1)
 });
 
+const togglePinSchema = z.object({
+  jid: z.string({ required_error: 'JID diperlukan' }).trim().min(3),
+  pinned: z.boolean({ required_error: 'Status pinned wajib boolean' })
+});
+
+const toggleArchiveSchema = z.object({
+  jid: z.string({ required_error: 'JID diperlukan' }).trim().min(3),
+  archived: z.boolean({ required_error: 'Status archived wajib boolean' })
+});
+
 module.exports = {
   sendChatMessageSchema,
   sendOutboundMessageSchema,
@@ -98,6 +109,9 @@ module.exports = {
   toggleAutoReplySchema,
   editChatMessageSchema,
   deleteForEveryoneSchema,
-  deleteForMeSchema
+  deleteForMeSchema,
+  togglePinSchema,
+  toggleArchiveSchema
 };
+
 

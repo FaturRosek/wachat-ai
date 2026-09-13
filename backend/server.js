@@ -93,6 +93,12 @@ const startServer = async () => {
 
   process.on("SIGTERM", () => handleShutdown("SIGTERM"));
   process.on("SIGINT", () => handleShutdown("SIGINT"));
+  process.on("unhandledRejection", (reason) => {
+    console.warn("[Server Warning] Unhandled Rejection:", reason?.message || reason);
+  });
+  process.on("uncaughtException", (err) => {
+    console.warn("[Server Warning] Uncaught Exception:", err?.message || err);
+  });
 };
 
 if (require.main === module) {

@@ -574,7 +574,9 @@ class WhatsappService {
             const convTime = c.conversationTimestamp ? Number(c.conversationTimestamp) : 0;
             const recvTime = c.lastMessageRecvTimestamp ? Number(c.lastMessageRecvTimestamp) : 0;
             const unread = Number(c.unreadCount || 0);
-            if (convTime >= oneWeekAgoSec || recvTime >= oneWeekAgoSec || unread > 0) {
+            const isPinned = c.pinned !== undefined && c.pinned !== null && c.pinned !== 0 && c.pinned !== false;
+            const isArchived = !!(c.archive || c.archived);
+            if (convTime >= oneWeekAgoSec || recvTime >= oneWeekAgoSec || unread > 0 || isPinned || isArchived) {
               await this._processChatObject(userId, sessionName, c);
             }
           }
@@ -650,6 +652,22 @@ class WhatsappService {
             remoteJid: update.key?.remoteJid,
           });
           continue;
+        }
+
+        const editProto = update.update?.message?.protocolMessage?.editedMessage || update.update?.message?.editedMessage;
+        if (editProto) {
+          const unwrapped = this._unwrapWAMessage(editProto);
+          const editedText = unwrapped.proto?.conversation || unwrapped.proto?.extendedTextMessage?.text || "";
+          if (editedText) {
+            const updated = await MessageModel.updateContent(userId, messageId, editedText);
+            socketService.emitToUser(userId, "message_edited", {
+              messageId,
+              newContent: editedText,
+              remoteJid: update.key?.remoteJid,
+              rawData: updated?.raw_data || { isEdited: true },
+            });
+            continue;
+          }
         }
 
         const statusMap = {
@@ -972,6 +990,27 @@ class WhatsappService {
       }
     }
 
+    let isPinned = undefined;
+    let pinnedAt = undefined;
+    if (c.pinned !== undefined) {
+      if (c.pinned === null || c.pinned === 0 || c.pinned === false) {
+        isPinned = false;
+        pinnedAt = null;
+      } else {
+        isPinned = true;
+        pinnedAt = typeof c.pinned === "number" && c.pinned > 0
+          ? (c.pinned > 10000000000 ? new Date(c.pinned) : new Date(c.pinned * 1000))
+          : new Date();
+      }
+    }
+
+    let isArchived = undefined;
+    if (c.archived !== undefined) {
+      isArchived = !!c.archived;
+    } else if (c.archive !== undefined) {
+      isArchived = !!c.archive;
+    }
+
     await ContactModel.upsertChat(userId, {
       jid: cleanJid,
       name,
@@ -980,6 +1019,9 @@ class WhatsappService {
       unreadCount,
       lastMessageText,
       lastMessageTime,
+      isPinned,
+      pinnedAt,
+      isArchived,
     });
   }
 
@@ -1017,14 +1059,35 @@ class WhatsappService {
     }
 
     const protocolMsg = raw.message?.protocolMessage || proto?.protocolMessage;
-    if (protocolMsg && (protocolMsg.type === 0 || protocolMsg.type === 14) && protocolMsg.key?.id) {
-      const targetId = protocolMsg.key.id;
-      await MessageModel.markAsRevoked(userId, targetId);
-      socketService.emitToUser(userId, "message_revoked", {
-        messageId: targetId,
-        remoteJid: protocolMsg.key.remoteJid || remoteJid,
-      });
-      return;
+    if (protocolMsg) {
+      if (protocolMsg.type === 0 && protocolMsg.key?.id) {
+        const targetId = protocolMsg.key.id;
+        await MessageModel.markAsRevoked(userId, targetId);
+        socketService.emitToUser(userId, "message_revoked", {
+          messageId: targetId,
+          remoteJid: protocolMsg.key.remoteJid || remoteJid,
+        });
+        return;
+      }
+      if (protocolMsg.type === 14 && protocolMsg.key?.id) {
+        const targetId = protocolMsg.key.id;
+        const editedProto = protocolMsg.editedMessage;
+        let editedText = "";
+        if (editedProto) {
+          const unwrapped = this._unwrapWAMessage(editedProto);
+          editedText = unwrapped.proto?.conversation || unwrapped.proto?.extendedTextMessage?.text || "";
+        }
+        if (editedText) {
+          const updated = await MessageModel.updateContent(userId, targetId, editedText);
+          socketService.emitToUser(userId, "message_edited", {
+            messageId: targetId,
+            newContent: editedText,
+            remoteJid: protocolMsg.key.remoteJid || remoteJid,
+            rawData: updated?.raw_data || { isEdited: true },
+          });
+        }
+        return;
+      }
     }
 
     const msgTimeSec = Number(timestamp || Date.now() / 1000);
@@ -1119,6 +1182,65 @@ class WhatsappService {
       await ContactModel.updateNameIfPlaceholder(userId, remoteJid, pushName.trim());
     }
 
+    const contextInfo =
+      proto?.extendedTextMessage?.contextInfo ||
+      proto?.imageMessage?.contextInfo ||
+      proto?.videoMessage?.contextInfo ||
+      proto?.audioMessage?.contextInfo ||
+      proto?.documentMessage?.contextInfo ||
+      proto?.stickerMessage?.contextInfo ||
+      raw?.message?.extendedTextMessage?.contextInfo ||
+      raw?.message?.imageMessage?.contextInfo ||
+      raw?.message?.videoMessage?.contextInfo ||
+      null;
+
+    let quotedMessageData = null;
+    if (contextInfo && (contextInfo.stanzaId || contextInfo.quotedMessage)) {
+      const qProto = contextInfo.quotedMessage || {};
+      let qText = qProto.conversation || qProto.extendedTextMessage?.text;
+      let qMediaType = "text";
+      if (!qText) {
+        if (qProto.imageMessage) {
+          qMediaType = "image";
+          qText = qProto.imageMessage.caption || "📷 Foto";
+        } else if (qProto.videoMessage) {
+          qMediaType = "video";
+          qText = qProto.videoMessage.caption || "🎥 Video";
+        } else if (qProto.audioMessage) {
+          qMediaType = qProto.audioMessage.ptt ? "voice" : "audio";
+          qText = qProto.audioMessage.ptt ? "🎤 Pesan Suara" : "🎵 Audio";
+        } else if (qProto.documentMessage) {
+          qMediaType = "document";
+          qText = `📄 ${qProto.documentMessage.fileName || qProto.documentMessage.caption || "Dokumen"}`;
+        } else if (qProto.stickerMessage) {
+          qMediaType = "sticker";
+          qText = "🎨 Stiker";
+        } else if (qProto.contactMessage) {
+          qMediaType = "contact";
+          qText = `👤 ${qProto.contactMessage.displayName || "Kontak"}`;
+        } else if (qProto.locationMessage) {
+          qMediaType = "location";
+          qText = `📍 ${qProto.locationMessage.name || "Lokasi"}`;
+        }
+      }
+
+      const qParticipant = contextInfo.participant || "";
+      const qPhone = qParticipant ? qParticipant.replace(/[^0-9]/g, "") : "";
+      const keySession = this.sessions.get(this.getSessionKey(userId, sessionName));
+      const myPhone = keySession?.phoneNumber || (keySession?.sock?.user?.id ? keySession.sock.user.id.split(":")[0] : "");
+      const isQFromMe = (myPhone && qPhone && qPhone === myPhone) || (fromMe && !contextInfo.participant);
+
+      quotedMessageData = {
+        messageId: contextInfo.stanzaId || null,
+        senderJid: qParticipant || null,
+        senderPhone: qPhone || null,
+        senderName: isQFromMe ? "Saya" : (qPhone ? `+${qPhone}` : "Kontak"),
+        fromMe: isQFromMe,
+        content: qText || "Pesan",
+        mediaType: qMediaType,
+      };
+    }
+
     try {
       const contact = await ContactModel.findOrCreate(userId, {
         name: isGroup ? "Grup WhatsApp" : (!fromMe && pushName ? pushName : `+${rawPhone}`),
@@ -1140,6 +1262,7 @@ class WhatsappService {
         mediaType,
         mediaUrl,
         mediaCaption,
+        quotedMessage: quotedMessageData,
         rawData: isViewOnce ? { isViewOnce: true } : null,
         direction: fromMe ? "OUTGOING" : "INCOMING",
         status: fromMe ? "SENT" : "DELIVERED",
@@ -1252,7 +1375,7 @@ class WhatsappService {
     }
   }
 
-  async sendChatMessage(userId, { jid, text, sessionName = "default" }) {
+  async sendChatMessage(userId, { jid, text, quotedMessageId = null, sessionName = "default" }) {
     if (!jid || !text || text.trim() === "") {
       throw new Error("JID dan teks pesan diperlukan");
     }
@@ -1283,9 +1406,58 @@ class WhatsappService {
       isGroup,
     });
 
+    let quotedPayload = undefined;
+    let quotedMessageData = null;
+
+    if (quotedMessageId) {
+      const origMsg = await MessageModel.getById(quotedMessageId, userId);
+      if (origMsg) {
+        const isOrigFromMe = !!origMsg.from_me;
+        let participant = undefined;
+        if (isGroup) {
+          if (isOrigFromMe) {
+            participant = session.sock.user?.id ? session.sock.user.id.split(":")[0] + "@s.whatsapp.net" : undefined;
+          } else if (origMsg.phone) {
+            participant = `${String(origMsg.phone).replace(/[^0-9]/g, "")}@s.whatsapp.net`;
+          }
+        }
+
+        let origContent = { conversation: origMsg.content || "" };
+        if (origMsg.media_type === "image") {
+          origContent = { imageMessage: { caption: origMsg.content || "" } };
+        } else if (origMsg.media_type === "video") {
+          origContent = { videoMessage: { caption: origMsg.content || "" } };
+        } else if (origMsg.media_type === "voice" || origMsg.media_type === "audio") {
+          origContent = { audioMessage: { ptt: origMsg.media_type === "voice" } };
+        } else if (origMsg.media_type === "document") {
+          origContent = { documentMessage: { fileName: origMsg.content || "Dokumen" } };
+        }
+
+        quotedPayload = {
+          key: {
+            remoteJid: cleanJid,
+            fromMe: isOrigFromMe,
+            id: origMsg.message_id || origMsg.id,
+            participant,
+          },
+          message: origContent,
+        };
+
+        quotedMessageData = {
+          messageId: origMsg.message_id || origMsg.id,
+          senderName: isOrigFromMe ? "Saya" : (origMsg.sender_name || (origMsg.phone ? `+${origMsg.phone}` : "Kontak")),
+          senderPhone: origMsg.phone || null,
+          content: origMsg.content || "",
+          mediaType: origMsg.media_type || "text",
+          fromMe: isOrigFromMe,
+        };
+      }
+    }
+
+    const sendOptions = quotedPayload ? { quoted: quotedPayload } : {};
     const sent = await session.sock.sendMessage(cleanJid, {
       text: text.trim(),
-    });
+    }, sendOptions);
 
     if (sent?.key?.id) {
       this.processedMessageIds.set(`${userId}_${sent.key.id}`, Date.now());
@@ -1299,6 +1471,7 @@ class WhatsappService {
       messageId: sent?.key?.id,
       senderName: "Saya",
       content: text.trim(),
+      quotedMessage: quotedMessageData,
       direction: "OUTGOING",
       status: "SENT",
       fromMe: true,
@@ -1318,6 +1491,169 @@ class WhatsappService {
     });
 
     return savedMessage;
+  }
+
+  async editChatMessage(userId, { jid, messageId, newText, sessionName = "default" }) {
+    const key = this.getSessionKey(userId, sessionName);
+    const session = this.sessions.get(key);
+
+    if (!session || session.status !== "CONNECTED" || !session.sock) {
+      throw new Error("WhatsApp Anda belum terhubung.");
+    }
+
+    const isGroup = jid.endsWith("@g.us");
+    let cleanJid = jid;
+    let cleanPhone = isGroup ? jid : jid.replace(/[^0-9]/g, "");
+
+    if (jid.endsWith("@lid")) {
+      const resolved = this.resolveLidToPhone(userId, sessionName, jid);
+      cleanJid = resolved.jid;
+      cleanPhone = resolved.phone;
+    } else if (!isGroup && !jid.includes("@")) {
+      cleanJid = `${cleanPhone}@s.whatsapp.net`;
+    }
+
+    const editKey = {
+      remoteJid: cleanJid,
+      fromMe: true,
+      id: messageId,
+    };
+
+    await session.sock.sendMessage(cleanJid, {
+      text: newText.trim(),
+      edit: editKey,
+    });
+
+    const updated = await MessageModel.updateContent(userId, messageId, newText.trim());
+
+    socketService.emitToUser(userId, "message_edited", {
+      messageId,
+      newContent: newText.trim(),
+      remoteJid: cleanJid,
+      rawData: updated?.raw_data || { isEdited: true },
+    });
+
+    return updated || { messageId, content: newText.trim() };
+  }
+
+  async deleteMessageForEveryone(userId, { jid, messageId, sessionName = "default" }) {
+    const key = this.getSessionKey(userId, sessionName);
+    const session = this.sessions.get(key);
+
+    if (!session || session.status !== "CONNECTED" || !session.sock) {
+      throw new Error("WhatsApp Anda belum terhubung.");
+    }
+
+    const isGroup = jid.endsWith("@g.us");
+    let cleanJid = jid;
+    let cleanPhone = isGroup ? jid : jid.replace(/[^0-9]/g, "");
+
+    if (jid.endsWith("@lid")) {
+      const resolved = this.resolveLidToPhone(userId, sessionName, jid);
+      cleanJid = resolved.jid;
+      cleanPhone = resolved.phone;
+    } else if (!isGroup && !jid.includes("@")) {
+      cleanJid = `${cleanPhone}@s.whatsapp.net`;
+    }
+
+    const deleteKey = {
+      remoteJid: cleanJid,
+      fromMe: true,
+      id: messageId,
+    };
+
+    await session.sock.sendMessage(cleanJid, {
+      delete: deleteKey,
+    });
+
+    const updated = await MessageModel.markAsRevoked(userId, messageId);
+
+    socketService.emitToUser(userId, "message_revoked", {
+      messageId,
+      remoteJid: cleanJid,
+    });
+
+    return { success: true, messageId };
+  }
+
+  async deleteMessageForMe(userId, { messageId }) {
+    await MessageModel.deleteByIdOrMessageId(userId, messageId);
+
+    socketService.emitToUser(userId, "message_deleted_for_me", {
+      messageId,
+    });
+
+    return { success: true, messageId };
+  }
+
+  async modifyChatPin(userId, { jid, pinned, sessionName = "default" }) {
+    const key = this.getSessionKey(userId, sessionName);
+    const session = this.sessions.get(key);
+
+    const isGroup = typeof jid === "string" && jid.endsWith("@g.us");
+    let cleanJid = jid;
+    let cleanPhone = isGroup ? jid : (jid ? String(jid).replace(/[^0-9]/g, "") : "");
+
+    if (typeof jid === "string" && jid.endsWith("@lid")) {
+      const resolved = this.resolveLidToPhone(userId, sessionName, jid);
+      cleanJid = resolved.jid;
+      cleanPhone = resolved.phone;
+    } else if (!isGroup && jid && !jid.includes("@")) {
+      cleanJid = `${cleanPhone}@s.whatsapp.net`;
+    }
+
+    if (session && session.status === "CONNECTED" && session.sock) {
+      try {
+        await session.sock.chatModify({ pin: !!pinned }, cleanJid);
+      } catch (err) {
+        console.warn(`[WhatsApp - ${userId}] Error syncing chat pin:`, err.message);
+      }
+    }
+  }
+
+  async modifyChatArchive(userId, { jid, archived, sessionName = "default" }) {
+    const key = this.getSessionKey(userId, sessionName);
+    const session = this.sessions.get(key);
+
+    const isGroup = typeof jid === "string" && jid.endsWith("@g.us");
+    let cleanJid = jid;
+    let cleanPhone = isGroup ? jid : (jid ? String(jid).replace(/[^0-9]/g, "") : "");
+
+    if (typeof jid === "string" && jid.endsWith("@lid")) {
+      const resolved = this.resolveLidToPhone(userId, sessionName, jid);
+      cleanJid = resolved.jid;
+      cleanPhone = resolved.phone;
+    } else if (!isGroup && jid && !jid.includes("@")) {
+      cleanJid = `${cleanPhone}@s.whatsapp.net`;
+    }
+
+    if (session && session.status === "CONNECTED" && session.sock) {
+      try {
+        let lastMessages = undefined;
+        try {
+          const msgs = await MessageModel.getByChatJid(userId, cleanJid, 1, 0);
+          if (msgs && msgs.length > 0 && msgs[0].message_id) {
+            const latest = msgs[0];
+            lastMessages = [{
+              key: {
+                id: latest.message_id,
+                remoteJid: cleanJid,
+                fromMe: !!latest.from_me,
+                participant: latest.sender_phone && cleanJid.endsWith("@g.us") ? `${latest.sender_phone}@s.whatsapp.net` : undefined
+              },
+              messageTimestamp: Math.floor(new Date(latest.sent_at || latest.created_at).getTime() / 1000)
+            }];
+          }
+        } catch (e) {}
+
+        await session.sock.chatModify({
+          archive: !!archived,
+          lastMessages
+        }, cleanJid);
+      } catch (err) {
+        console.warn(`[WhatsApp - ${userId}] Error syncing chat archive:`, err.message);
+      }
+    }
   }
 
   async requestPairingCode(userId, rawPhone, sessionName = "default") {
@@ -1673,7 +2009,7 @@ class WhatsappService {
     };
   }
 
-  async sendVoiceNote(userId, { jid, audioBuffer, mimetype = 'audio/ogg; codecs=opus', sessionName = 'default' }) {
+  async sendVoiceNote(userId, { jid, audioBuffer, mimetype = 'audio/ogg; codecs=opus', quotedMessageId = null, sessionName = 'default' }) {
     const key = this.getSessionKey(userId, sessionName);
     const session = this.sessions.get(key);
     if (!session || !session.sock || session.status !== "CONNECTED") {
@@ -1722,7 +2058,56 @@ class WhatsappService {
       sendPayload.waveform = waveform;
     }
 
-    const sent = await session.sock.sendMessage(cleanJid, sendPayload);
+    let quotedPayload = undefined;
+    let quotedMessageData = null;
+
+    if (quotedMessageId) {
+      const origMsg = await MessageModel.getById(quotedMessageId, userId);
+      if (origMsg) {
+        const isOrigFromMe = !!origMsg.from_me;
+        let participant = undefined;
+        if (isGroup) {
+          if (isOrigFromMe) {
+            participant = session.sock.user?.id ? session.sock.user.id.split(":")[0] + "@s.whatsapp.net" : undefined;
+          } else if (origMsg.phone) {
+            participant = `${String(origMsg.phone).replace(/[^0-9]/g, "")}@s.whatsapp.net`;
+          }
+        }
+
+        let origContent = { conversation: origMsg.content || "" };
+        if (origMsg.media_type === "image") {
+          origContent = { imageMessage: { caption: origMsg.content || "" } };
+        } else if (origMsg.media_type === "video") {
+          origContent = { videoMessage: { caption: origMsg.content || "" } };
+        } else if (origMsg.media_type === "voice" || origMsg.media_type === "audio") {
+          origContent = { audioMessage: { ptt: origMsg.media_type === "voice" } };
+        } else if (origMsg.media_type === "document") {
+          origContent = { documentMessage: { fileName: origMsg.content || "Dokumen" } };
+        }
+
+        quotedPayload = {
+          key: {
+            remoteJid: cleanJid,
+            fromMe: isOrigFromMe,
+            id: origMsg.message_id || origMsg.id,
+            participant,
+          },
+          message: origContent,
+        };
+
+        quotedMessageData = {
+          messageId: origMsg.message_id || origMsg.id,
+          senderName: isOrigFromMe ? "Saya" : (origMsg.sender_name || (origMsg.phone ? `+${origMsg.phone}` : "Kontak")),
+          senderPhone: origMsg.phone || null,
+          content: origMsg.content || "",
+          mediaType: origMsg.media_type || "text",
+          fromMe: isOrigFromMe,
+        };
+      }
+    }
+
+    const sendOptions = quotedPayload ? { quoted: quotedPayload } : {};
+    const sent = await session.sock.sendMessage(cleanJid, sendPayload, sendOptions);
 
     if (sent?.key?.id) {
       this.processedMessageIds.set(`${userId}_${sent.key.id}`, Date.now());
@@ -1755,6 +2140,7 @@ class WhatsappService {
       mediaType: "voice",
       mediaUrl,
       mediaCaption: "Pesan Suara",
+      quotedMessage: quotedMessageData,
       direction: "OUTGOING",
       status: "SENT",
       fromMe: true,

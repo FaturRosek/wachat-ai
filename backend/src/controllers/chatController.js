@@ -92,7 +92,7 @@ const ChatController = {
 
   async sendMessage(req, res, next) {
     try {
-      const { jid, message, sessionName = 'default' } = req.body;
+      const { jid, message, quotedMessageId = null, sessionName = 'default' } = req.body;
 
       if (!jid || !message || message.trim() === '') {
         return res.status(400).json({
@@ -104,6 +104,7 @@ const ChatController = {
       const result = await WhatsappService.sendChatMessage(req.user.id, {
         jid,
         text: message,
+        quotedMessageId,
         sessionName
       });
 
@@ -119,7 +120,7 @@ const ChatController = {
 
   async sendVoiceNote(req, res, next) {
     try {
-      const { jid, sessionName = 'default' } = req.body;
+      const { jid, quotedMessageId = null, sessionName = 'default' } = req.body;
       const file = req.file;
 
       if (!jid || !file) {
@@ -133,6 +134,7 @@ const ChatController = {
         jid,
         audioBuffer: file.buffer,
         mimetype: file.mimetype || 'audio/ogg; codecs=opus',
+        quotedMessageId,
         sessionName
       });
 
@@ -140,6 +142,103 @@ const ChatController = {
         success: true,
         message: 'Voice Note berhasil dikirim!',
         data: result
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async editMessage(req, res, next) {
+    try {
+      const { jid, messageId, newText, sessionName = 'default' } = req.body;
+
+      const result = await WhatsappService.editChatMessage(req.user.id, {
+        jid,
+        messageId,
+        newText,
+        sessionName
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'Pesan berhasil diedit',
+        data: result
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async deleteForEveryone(req, res, next) {
+    try {
+      const { jid, messageId, sessionName = 'default' } = req.body;
+
+      const result = await WhatsappService.deleteMessageForEveryone(req.user.id, {
+        jid,
+        messageId,
+        sessionName
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'Pesan berhasil ditarik untuk semua orang',
+        data: result
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async deleteForMe(req, res, next) {
+    try {
+      const { messageId } = req.body;
+
+      const result = await WhatsappService.deleteMessageForMe(req.user.id, {
+        messageId
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'Pesan berhasil dihapus untuk Anda',
+        data: result
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async togglePin(req, res, next) {
+    try {
+      const { jid, pinned } = req.body;
+      await WhatsappService.modifyChatPin(req.user.id, { jid, pinned });
+      const contact = await ContactModel.togglePin(req.user.id, jid, pinned);
+      
+      const socketService = require('../services/socketService');
+      socketService.emitToUser(req.user.id, 'chats_updated', {});
+
+      res.status(200).json({
+        success: true,
+        message: pinned ? 'Chat disematkan' : 'Sematkan chat dilepas',
+        data: contact
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async toggleArchive(req, res, next) {
+    try {
+      const { jid, archived } = req.body;
+      await WhatsappService.modifyChatArchive(req.user.id, { jid, archived });
+      const contact = await ContactModel.toggleArchive(req.user.id, jid, archived);
+      
+      const socketService = require('../services/socketService');
+      socketService.emitToUser(req.user.id, 'chats_updated', {});
+
+      res.status(200).json({
+        success: true,
+        message: archived ? 'Chat diarsipkan' : 'Chat dikeluarkan dari arsip',
+        data: contact
       });
     } catch (error) {
       next(error);

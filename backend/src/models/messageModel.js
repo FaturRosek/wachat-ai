@@ -92,12 +92,54 @@ const MessageModel = {
     return rows[0] || null;
   },
 
+  async markAsRevoked(userId, messageId) {
+    const text = `
+      UPDATE messages
+      SET status = 'REVOKED',
+          raw_data = jsonb_set(
+            jsonb_set(COALESCE(raw_data, '{}'::jsonb), '{isDeletedForEveryone}', 'true'::jsonb),
+            '{revokedAt}',
+            to_jsonb(CURRENT_TIMESTAMP)
+          )
+      WHERE user_id = $1 AND (message_id = $2 OR id::text = $2)
+      RETURNING *
+    `;
+    const { rows } = await query(text, [userId, messageId]);
+    return rows[0] || null;
+  },
+
+  async updateContent(userId, messageId, newContent) {
+    const text = `
+      UPDATE messages
+      SET content = $1,
+          raw_data = jsonb_set(
+            jsonb_set(COALESCE(raw_data, '{}'::jsonb), '{isEdited}', 'true'::jsonb),
+            '{editedAt}',
+            to_jsonb(CURRENT_TIMESTAMP)
+          )
+      WHERE user_id = $2 AND (message_id = $3 OR id::text = $3)
+      RETURNING *
+    `;
+    const { rows } = await query(text, [newContent, userId, messageId]);
+    return rows[0] || null;
+  },
+
+  async deleteByIdOrMessageId(userId, idOrMessageId) {
+    const text = `
+      DELETE FROM messages
+      WHERE user_id = $1 AND (id::text = $2 OR message_id = $2)
+      RETURNING *
+    `;
+    const { rows } = await query(text, [userId, idOrMessageId]);
+    return rows[0] || null;
+  },
+
   async getById(id, userId) {
     const text = `
       SELECT m.*, ct.name AS contact_name
       FROM messages m
       LEFT JOIN contacts ct ON m.contact_id = ct.id
-      WHERE m.id = $1 AND m.user_id = $2
+      WHERE (m.id::text = $1 OR m.message_id = $1) AND m.user_id = $2
       LIMIT 1
     `;
     const { rows } = await query(text, [id, userId]);
@@ -121,10 +163,10 @@ const MessageModel = {
             OR m.remote_jid = $3 
             OR m.phone = $4
           )
-        ORDER BY COALESCE(m.sent_at, m.created_at) DESC
+        ORDER BY COALESCE(m.sent_at, m.created_at) DESC, m.id DESC
         LIMIT $5 OFFSET $6
       ) sub
-      ORDER BY COALESCE(sub.sent_at, sub.created_at) ASC
+      ORDER BY COALESCE(sub.sent_at, sub.created_at) ASC, sub.id ASC
     `;
     const { rows } = await query(text, [userId, jid, standardJid, cleanPhone, limit, offset]);
     return rows;

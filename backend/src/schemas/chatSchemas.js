@@ -72,11 +72,32 @@ const toggleAutoReplySchema = z.object({
   enabled: z.boolean({ required_error: 'Status enabled wajib boolean' })
 });
 
+const editChatMessageSchema = z.object({
+  jid: z.string({ required_error: 'JID penerima wajib diisi' }).trim().min(3),
+  messageId: z.string({ required_error: 'Message ID wajib diisi' }).trim().min(1),
+  newText: z.string({ required_error: 'Teks pesan baru wajib diisi' }).trim().min(1).max(4096),
+  sessionName: z.string().trim().optional().default('default')
+});
+
+const deleteForEveryoneSchema = z.object({
+  jid: z.string({ required_error: 'JID penerima wajib diisi' }).trim().min(3),
+  messageId: z.string({ required_error: 'Message ID wajib diisi' }).trim().min(1),
+  sessionName: z.string().trim().optional().default('default')
+});
+
+const deleteForMeSchema = z.object({
+  messageId: z.string({ required_error: 'Message ID wajib diisi' }).trim().min(1)
+});
+
 module.exports = {
   sendChatMessageSchema,
   sendOutboundMessageSchema,
   aiRewriteSchema,
   aiContextSchema,
   aiSettingUpdateSchema,
-  toggleAutoReplySchema
+  toggleAutoReplySchema,
+  editChatMessageSchema,
+  deleteForEveryoneSchema,
+  deleteForMeSchema
 };
+

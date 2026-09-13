@@ -24,6 +24,7 @@ import {
   X,
   Zap,
   Eye,
+  Ban,
 } from 'lucide-react';
 import apiClient from '../api/apiClient';
 import { useSocket } from '../context/SocketContext';
@@ -329,6 +330,24 @@ export default function WaWebChatPage({ waStatus }) {
       });
     });
 
+    const unsubRevoke = onEvent('message_revoked', ({ messageId, remoteJid }) => {
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.message_id === messageId || m.id === messageId) {
+            const currentRaw = typeof m.raw_data === 'object' && m.raw_data ? m.raw_data : {};
+            return {
+              ...m,
+              raw_data: {
+                ...currentRaw,
+                isDeletedForEveryone: true,
+              },
+            };
+          }
+          return m;
+        })
+      );
+    });
+
     return () => {
       unsubSync();
       unsubChatSync();
@@ -340,6 +359,7 @@ export default function WaWebChatPage({ waStatus }) {
       unsubStatus();
       unsubPresence();
       unsubAvatarUpdate();
+      unsubRevoke();
     };
   }, [activeChat, onEvent]);
 
@@ -889,82 +909,99 @@ export default function WaWebChatPage({ waStatus }) {
                       )}
 
                       {(() => {
+                        const isDeleted = msg.raw_data?.isDeletedForEveryone || 
+                          (typeof msg.raw_data === 'string' && msg.raw_data.includes('"isDeletedForEveryone":true')) || 
+                          msg.status === 'REVOKED';
+
                         const isVo = msg.raw_data?.isViewOnce || 
                           (typeof msg.raw_data === 'string' && msg.raw_data.includes('"isViewOnce":true')) || 
                           msg.content?.includes('(Sekali Lihat)') || 
                           msg.media_caption?.includes('Sekali Lihat') || 
                           msg.content?.includes('👁️');
 
-                        if (msg.media_type === 'voice' || msg.media_type === 'audio' || (msg.media_url && (msg.media_url.endsWith('.ogg') || msg.media_url.endsWith('.mp3') || msg.media_url.endsWith('.m4a') || msg.media_url.endsWith('.webm')))) {
-                          return <WhatsAppAudioPlayer audioUrl={msg.media_url} isMe={isMe} senderAvatar={msg.sender_avatar} />;
-                        }
-
-                        if (msg.media_type === 'video' && msg.media_url) {
-                          return (
-                            <WhatsAppVideoPlayer
-                              videoUrl={msg.media_url}
-                              isMe={isMe}
-                              caption={msg.content}
-                              isViewOnce={isVo}
-                              onExpand={() => setPreviewMedia({
-                                type: 'video',
-                                url: msg.media_url,
-                                caption: msg.content,
-                                isViewOnce: isVo
-                              })}
-                            />
-                          );
-                        }
-
-                        if (msg.media_type === 'image' && msg.media_url) {
-                          return (
-                            <div 
-                              className="mb-1 rounded-xl overflow-hidden max-w-xs relative group cursor-pointer"
-                              onClick={() => setPreviewMedia({
-                                type: 'image',
-                                url: msg.media_url,
-                                caption: msg.content,
-                                isViewOnce: isVo
-                              })}
-                            >
-                              {isVo && (
-                                <div className="absolute top-2 left-2 z-10 flex items-center gap-1 px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-xs text-amber-300 border border-amber-400/40 text-[10px] font-bold shadow-md">
-                                  <Eye className="w-3 h-3 text-amber-400 animate-pulse" />
-                                  <span>Sekali Lihat</span>
-                                </div>
-                              )}
-                              <img
-                                src={msg.media_url}
-                                alt="Foto"
-                                className="w-full h-auto object-cover max-h-60 rounded-xl transition-transform duration-200 group-hover:scale-[1.02]"
-                              />
-                              {msg.content && msg.content !== '📷 Foto' && msg.content !== '👁️ Foto (Sekali Lihat)' && (
-                                <p className="whitespace-pre-wrap break-words mt-1">{msg.content}</p>
-                              )}
-                            </div>
-                          );
-                        }
-
-                        if (msg.media_type === 'view_once' || isVo) {
-                          return (
-                            <div className="flex items-center gap-3 py-1.5 px-2 rounded-xl bg-amber-500/10 dark:bg-amber-950/40 border border-amber-400/30 text-amber-900 dark:text-amber-200 select-none">
-                              <div className="w-8 h-8 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-500 flex items-center justify-center flex-shrink-0">
-                                <Eye className="w-4 h-4 animate-pulse" />
+                        return (
+                          <>
+                            {isDeleted && (
+                              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-500/15 dark:bg-rose-950/40 border border-rose-400/30 text-rose-600 dark:text-rose-300 font-bold text-[10px] mb-2 select-none w-fit">
+                                <Ban className="w-3.5 h-3.5 text-rose-500 flex-shrink-0" />
+                                <span>Pesan ini telah ditarik oleh pengirim</span>
                               </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="font-bold text-xs flex items-center gap-1.5">
-                                  <span>Pesan Sekali Lihat</span>
-                                  <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-amber-500/20 font-semibold">1x</span>
-                                </p>
-                                <p className="text-[10px] opacity-80 mt-0.5">
-                                  Buka langsung di aplikasi WhatsApp ponsel Anda
-                                </p>
-                              </div>
-                            </div>
-                          );
-                        }
+                            )}
 
-                        return <p className="whitespace-pre-wrap break-words">{msg.content}</p>;
+                            {(() => {
+                              if (msg.media_type === 'voice' || msg.media_type === 'audio' || (msg.media_url && (msg.media_url.endsWith('.ogg') || msg.media_url.endsWith('.mp3') || msg.media_url.endsWith('.m4a') || msg.media_url.endsWith('.webm')))) {
+                                return <WhatsAppAudioPlayer audioUrl={msg.media_url} isMe={isMe} senderAvatar={msg.sender_avatar} />;
+                              }
+
+                              if (msg.media_type === 'video' && msg.media_url) {
+                                return (
+                                  <WhatsAppVideoPlayer
+                                    videoUrl={msg.media_url}
+                                    isMe={isMe}
+                                    caption={msg.content}
+                                    isViewOnce={isVo}
+                                    onExpand={() => setPreviewMedia({
+                                      type: 'video',
+                                      url: msg.media_url,
+                                      caption: msg.content,
+                                      isViewOnce: isVo
+                                    })}
+                                  />
+                                );
+                              }
+
+                              if (msg.media_type === 'image' && msg.media_url) {
+                                return (
+                                  <div 
+                                    className="mb-1 rounded-xl overflow-hidden max-w-xs relative group cursor-pointer"
+                                    onClick={() => setPreviewMedia({
+                                      type: 'image',
+                                      url: msg.media_url,
+                                      caption: msg.content,
+                                      isViewOnce: isVo
+                                    })}
+                                  >
+                                    {isVo && (
+                                      <div className="absolute top-2 left-2 z-10 flex items-center gap-1 px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-xs text-amber-300 border border-amber-400/40 text-[10px] font-bold shadow-md">
+                                        <Eye className="w-3 h-3 text-amber-400 animate-pulse" />
+                                        <span>Sekali Lihat</span>
+                                      </div>
+                                    )}
+                                    <img
+                                      src={msg.media_url}
+                                      alt="Foto"
+                                      className="w-full h-auto object-cover max-h-60 rounded-xl transition-transform duration-200 group-hover:scale-[1.02]"
+                                    />
+                                    {msg.content && msg.content !== '📷 Foto' && msg.content !== '👁️ Foto (Sekali Lihat)' && (
+                                      <p className="whitespace-pre-wrap break-words mt-1">{msg.content}</p>
+                                    )}
+                                  </div>
+                                );
+                              }
+
+                              if (msg.media_type === 'view_once' || isVo) {
+                                return (
+                                  <div className="flex items-center gap-3 py-1.5 px-2 rounded-xl bg-amber-500/10 dark:bg-amber-950/40 border border-amber-400/30 text-amber-900 dark:text-amber-200 select-none">
+                                    <div className="w-8 h-8 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-500 flex items-center justify-center flex-shrink-0">
+                                      <Eye className="w-4 h-4 animate-pulse" />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <p className="font-bold text-xs flex items-center gap-1.5">
+                                        <span>Pesan Sekali Lihat</span>
+                                        <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-amber-500/20 font-semibold">1x</span>
+                                      </p>
+                                      <p className="text-[10px] opacity-80 mt-0.5">
+                                        Buka langsung di aplikasi WhatsApp ponsel Anda
+                                      </p>
+                                    </div>
+                                  </div>
+                                );
+                              }
+
+                              return <p className="whitespace-pre-wrap break-words">{msg.content}</p>;
+                            })()}
+                          </>
+                        );
                       })()}
 
                       <div

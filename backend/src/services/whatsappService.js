@@ -640,6 +640,18 @@ class WhatsappService {
     sock.ev.on("messages.update", async (updates) => {
       for (const update of updates) {
         const messageId = update.key?.id;
+        if (!messageId) continue;
+
+        const isRevoked = update.update?.messageStubType === 1 || update.update?.messageStubType === 2 || (update.update?.message === null && update.update?.key);
+        if (isRevoked) {
+          await MessageModel.markAsRevoked(userId, messageId);
+          socketService.emitToUser(userId, "message_revoked", {
+            messageId,
+            remoteJid: update.key?.remoteJid,
+          });
+          continue;
+        }
+
         const statusMap = {
           1: "PENDING",
           2: "SENT",
@@ -648,7 +660,7 @@ class WhatsappService {
           5: "PLAYED",
         };
         const status = statusMap[update.update?.status];
-        if (messageId && status) {
+        if (status) {
           await MessageModel.updateStatusByMessageId(userId, messageId, status);
           socketService.emitToUser(userId, "message_status_update", {
             messageId,
@@ -1001,6 +1013,17 @@ class WhatsappService {
     }
 
     if (remoteJid.includes("status@broadcast")) {
+      return;
+    }
+
+    const protocolMsg = raw.message?.protocolMessage || proto?.protocolMessage;
+    if (protocolMsg && (protocolMsg.type === 0 || protocolMsg.type === 14) && protocolMsg.key?.id) {
+      const targetId = protocolMsg.key.id;
+      await MessageModel.markAsRevoked(userId, targetId);
+      socketService.emitToUser(userId, "message_revoked", {
+        messageId: targetId,
+        remoteJid: protocolMsg.key.remoteJid || remoteJid,
+      });
       return;
     }
 

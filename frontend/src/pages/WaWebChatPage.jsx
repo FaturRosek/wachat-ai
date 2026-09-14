@@ -46,6 +46,7 @@ import WhatsAppAudioPlayer from '../components/chat/WhatsAppAudioPlayer';
 import VoiceNoteRecorder from '../components/chat/VoiceNoteRecorder';
 import WhatsAppVideoPlayer from '../components/chat/WhatsAppVideoPlayer';
 import MediaViewerModal from '../components/chat/MediaViewerModal';
+import { getMediaUrl } from '../utils/mediaUrl';
 
 export default function WaWebChatPage({ waStatus, onActiveChatChange }) {
   const { onEvent } = useSocket();
@@ -1614,8 +1615,10 @@ export default function WaWebChatPage({ waStatus, onActiveChatChange }) {
                             )}
 
                             {(() => {
+                              const mediaSrc = getMediaUrl(msg.media_url);
+
                               if (msg.media_type === 'voice' || msg.media_type === 'audio' || (msg.media_url && (msg.media_url.endsWith('.ogg') || msg.media_url.endsWith('.mp3') || msg.media_url.endsWith('.m4a') || msg.media_url.endsWith('.webm')))) {
-                                return <WhatsAppAudioPlayer audioUrl={msg.media_url} isMe={isMe} senderAvatar={msg.sender_avatar} />;
+                                return <WhatsAppAudioPlayer audioUrl={mediaSrc} isMe={isMe} senderAvatar={msg.sender_avatar} />;
                               }
 
                               const isVideo = msg.media_type === 'video' || (msg.media_url && (msg.media_url.endsWith('.mp4') || msg.media_url.endsWith('.webm') || msg.media_url.endsWith('.mov') || msg.media_url.endsWith('.avi') || msg.media_url.endsWith('.mkv'))) || (msg.content && msg.content.toLowerCase().includes('video')) || (msg.media_caption && msg.media_caption.toLowerCase().includes('video'));
@@ -1625,10 +1628,10 @@ export default function WaWebChatPage({ waStatus, onActiveChatChange }) {
                                   <div className="mb-1 select-none">
                                     <div
                                       onClick={() => {
-                                        if (msg.media_url) {
+                                        if (mediaSrc) {
                                           setPreviewMedia({
                                             type: isVideo ? 'video' : 'image',
-                                            url: msg.media_url,
+                                            url: mediaSrc,
                                             caption: msg.content !== '📷 Foto' && msg.content !== '👁️ Foto (Sekali Lihat)' && msg.content !== '👁️ Foto / Video (Sekali Lihat)' ? msg.content : '',
                                             isViewOnce: true,
                                           });
@@ -1637,14 +1640,13 @@ export default function WaWebChatPage({ waStatus, onActiveChatChange }) {
                                         }
                                       }}
                                       className={`flex items-center gap-3 p-3 rounded-2xl border transition shadow-xs ${
-                                        msg.media_url ? 'cursor-pointer hover:brightness-105 active:scale-[0.99]' : 'opacity-90'
+                                        mediaSrc ? 'cursor-pointer hover:brightness-105 active:scale-[0.99]' : 'opacity-90'
                                       } ${
                                         isMe
                                           ? 'bg-blue-700/60 border-blue-400/40 text-white'
                                           : 'bg-white/95 dark:bg-[#1f2c34] border-slate-200 dark:border-[#2a3942] text-slate-800 dark:text-slate-100'
                                       }`}
                                     >
-                                      {/* Dashed circle 1x badge */}
                                       <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 font-bold border-2 border-dashed ${
                                         isMe
                                           ? 'border-amber-300 text-amber-300 bg-amber-400/20'
@@ -1655,7 +1657,6 @@ export default function WaWebChatPage({ waStatus, onActiveChatChange }) {
                                         </div>
                                       </div>
 
-                                      {/* Content info */}
                                       <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2">
                                           <p className="text-xs sm:text-sm font-bold truncate">
@@ -1668,20 +1669,19 @@ export default function WaWebChatPage({ waStatus, onActiveChatChange }) {
                                           </span>
                                         </div>
                                         <p className={`text-[10px] mt-0.5 ${isMe ? 'text-blue-100' : 'text-slate-500 dark:text-slate-400'}`}>
-                                          {msg.media_url ? 'Klik untuk melihat media' : 'Pesan terenkripsi sekali lihat'}
+                                          {mediaSrc ? 'Klik untuk melihat media' : 'Pesan terenkripsi sekali lihat'}
                                         </p>
                                       </div>
 
-                                      {/* Action buttons (View & Download) */}
                                       <div className="flex items-center gap-1.5 flex-shrink-0">
                                         <button
                                           type="button"
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            if (msg.media_url) {
+                                            if (mediaSrc) {
                                               setPreviewMedia({
                                                 type: isVideo ? 'video' : 'image',
-                                                url: msg.media_url,
+                                                url: mediaSrc,
                                                 caption: msg.content !== '📷 Foto' && msg.content !== '👁️ Foto (Sekali Lihat)' && msg.content !== '👁️ Foto / Video (Sekali Lihat)' ? msg.content : '',
                                                 isViewOnce: true,
                                               });
@@ -1699,9 +1699,9 @@ export default function WaWebChatPage({ waStatus, onActiveChatChange }) {
                                           <Eye className="w-4 h-4" />
                                         </button>
 
-                                        {msg.media_url && (
+                                        {mediaSrc && (
                                           <a
-                                            href={msg.media_url}
+                                            href={mediaSrc}
                                             download
                                             onClick={(e) => e.stopPropagation()}
                                             title="Download Media"
@@ -1724,16 +1724,16 @@ export default function WaWebChatPage({ waStatus, onActiveChatChange }) {
                                 );
                               }
 
-                              if (isVideo && msg.media_url) {
+                              if (isVideo && mediaSrc) {
                                 return (
                                   <WhatsAppVideoPlayer
-                                    videoUrl={msg.media_url}
+                                    videoUrl={mediaSrc}
                                     isMe={isMe}
                                     caption={msg.content}
                                     isViewOnce={isVo}
                                     onExpand={() => setPreviewMedia({
                                       type: 'video',
-                                      url: msg.media_url,
+                                      url: mediaSrc,
                                       caption: msg.content,
                                       isViewOnce: isVo
                                     })}
@@ -1741,20 +1741,20 @@ export default function WaWebChatPage({ waStatus, onActiveChatChange }) {
                                 );
                               }
 
-                              if (msg.media_type === 'image' && msg.media_url) {
+                              if (msg.media_type === 'image' && mediaSrc) {
                                 return (
                                   <div 
                                     className="mb-1 rounded-xl overflow-hidden max-w-xs relative group cursor-pointer"
                                     onClick={() => setPreviewMedia({
                                       type: 'image',
-                                      url: msg.media_url,
+                                      url: mediaSrc,
                                       caption: msg.content,
                                       isViewOnce: isVo
                                     })}
                                   >
                                     <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition duration-150 flex items-center gap-1.5">
                                       <a
-                                        href={msg.media_url}
+                                        href={mediaSrc}
                                         download
                                         onClick={(e) => e.stopPropagation()}
                                         title="Download Foto"
@@ -1764,7 +1764,7 @@ export default function WaWebChatPage({ waStatus, onActiveChatChange }) {
                                       </a>
                                     </div>
                                     <img
-                                      src={msg.media_url}
+                                      src={mediaSrc}
                                       alt="Foto"
                                       className="w-full h-auto object-cover max-h-60 rounded-xl transition-transform duration-200 group-hover:scale-[1.02]"
                                     />
@@ -1793,9 +1793,9 @@ export default function WaWebChatPage({ waStatus, onActiveChatChange }) {
                                         <p className="text-xs font-semibold truncate select-all">{fileName}</p>
                                         <span className={`text-[10px] ${isMe ? 'text-blue-200' : 'text-slate-400 dark:text-slate-400'}`}>Dokumen</span>
                                       </div>
-                                      {msg.media_url && (
+                                      {mediaSrc && (
                                         <a
-                                          href={msg.media_url}
+                                          href={mediaSrc}
                                           download={fileName}
                                           target="_blank"
                                           rel="noopener noreferrer"

@@ -1,11 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Play, Pause, Mic } from 'lucide-react';
+import { getMediaUrl } from '../../utils/mediaUrl';
 
 const WAVE_BARS = [
   35, 60, 45, 80, 50, 95, 70, 40, 85, 65, 100, 75, 45, 90, 60, 80, 50, 70, 40, 95, 60, 45, 75, 55, 90, 65, 40, 70, 50, 35
 ];
 
 export default function WhatsAppAudioPlayer({ audioUrl, isMe = false, senderAvatar = null }) {
+  const resolvedUrl = getMediaUrl(audioUrl);
   const audioRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -45,7 +47,7 @@ export default function WhatsAppAudioPlayer({ audioUrl, isMe = false, senderAvat
       audio.removeEventListener('ended', onEnded);
       audio.removeEventListener('error', onError);
     };
-  }, [audioUrl]);
+  }, [resolvedUrl]);
 
   const togglePlay = () => {
     const audio = audioRef.current;
@@ -95,7 +97,7 @@ export default function WhatsAppAudioPlayer({ audioUrl, isMe = false, senderAvat
 
   return (
     <div className={`flex items-center gap-3 py-1.5 px-1 select-none min-w-[220px] max-w-[320px] ${isMe ? 'text-white' : 'text-slate-800 dark:text-slate-100'}`}>
-      <audio ref={audioRef} src={audioUrl} preload="metadata" />
+      <audio ref={audioRef} src={resolvedUrl} preload="metadata" />
 
       <div className="relative flex-shrink-0">
         <button

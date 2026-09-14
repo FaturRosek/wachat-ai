@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { X, Download, ExternalLink, Eye, Play, Film, Image as ImageIcon } from 'lucide-react';
+import { getMediaUrl } from '../../utils/mediaUrl';
 
 export default function MediaViewerModal({ media, onClose }) {
   useEffect(() => {
@@ -14,7 +15,8 @@ export default function MediaViewerModal({ media, onClose }) {
 
   if (!media) return null;
 
-  const { type, url, caption, isViewOnce } = media;
+  const { type, url: rawUrl, caption, isViewOnce } = media;
+  const url = getMediaUrl(rawUrl);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 sm:p-6 animate-fade-in select-none">

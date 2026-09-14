@@ -1,7 +1,9 @@
 import React, { useState, useRef } from 'react';
 import { Play, Pause, Maximize2, Volume2, VolumeX, Eye, Download } from 'lucide-react';
+import { getMediaUrl } from '../../utils/mediaUrl';
 
 export default function WhatsAppVideoPlayer({ videoUrl, isMe = false, caption = null, isViewOnce = false, onExpand = null }) {
+  const resolvedUrl = getMediaUrl(videoUrl);
   const videoRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -42,7 +44,7 @@ export default function WhatsAppVideoPlayer({ videoUrl, isMe = false, caption = 
 
       <div className="absolute top-2 right-2 z-10 flex items-center gap-1 opacity-0 group-hover:opacity-100 duration-200">
         <a
-          href={videoUrl}
+          href={resolvedUrl}
           download
           onClick={(e) => e.stopPropagation()}
           title="Download Video"
@@ -67,7 +69,7 @@ export default function WhatsAppVideoPlayer({ videoUrl, isMe = false, caption = 
 
       <video
         ref={videoRef}
-        src={videoUrl}
+        src={resolvedUrl}
         preload="metadata"
         playsInline
         onEnded={() => setIsPlaying(false)}

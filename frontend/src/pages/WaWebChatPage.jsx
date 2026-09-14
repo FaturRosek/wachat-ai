@@ -47,12 +47,18 @@ import VoiceNoteRecorder from '../components/chat/VoiceNoteRecorder';
 import WhatsAppVideoPlayer from '../components/chat/WhatsAppVideoPlayer';
 import MediaViewerModal from '../components/chat/MediaViewerModal';
 
-export default function WaWebChatPage({ waStatus }) {
+export default function WaWebChatPage({ waStatus, onActiveChatChange }) {
   const { onEvent } = useSocket();
 
   const [chats, setChats] = useState([]);
   const [activeChat, setActiveChat] = useState(null);
   const [messages, setMessages] = useState([]);
+
+  useEffect(() => {
+    if (onActiveChatChange) {
+      onActiveChatChange(!!activeChat);
+    }
+  }, [activeChat, onActiveChatChange]);
   const [loadingChats, setLoadingChats] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [inputText, setInputText] = useState('');
@@ -1341,34 +1347,34 @@ export default function WaWebChatPage({ waStatus }) {
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Foto, video, atau dokumen akan otomatis terlampir</p>
             </div>
           )}
-          <div className="px-4 py-3 bg-white dark:bg-[#202c33] flex items-center justify-between z-10 border-b border-slate-200/90 dark:border-[#2a3942] shadow-2xs">
-            <div className="flex items-center gap-3 min-w-0">
+          <div className="px-3 sm:px-4 py-2.5 sm:py-3 bg-white dark:bg-[#202c33] flex items-center justify-between z-10 border-b border-slate-200/90 dark:border-[#2a3942] shadow-2xs">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
               <button
                 onClick={() => setActiveChat(null)}
-                className="md:hidden p-1.5 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#111b21] rounded-xl"
+                className="md:hidden p-1.5 -ml-1 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#111b21] rounded-xl flex-shrink-0"
               >
                 <ChevronLeft className="w-5 h-5" />
               </button>
 
               <div
                 onClick={() => setDrawerOpen(true)}
-                className="flex items-center gap-3 cursor-pointer min-w-0 group"
+                className="flex items-center gap-2.5 sm:gap-3 cursor-pointer min-w-0 flex-1 group"
               >
-                <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center font-bold text-sm text-white overflow-hidden shadow-xs flex-shrink-0">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center font-bold text-xs sm:text-sm text-white overflow-hidden shadow-xs flex-shrink-0">
                   {activeChat.avatar_url ? (
                     <img src={activeChat.avatar_url} alt="" className="w-full h-full object-cover" />
                   ) : activeChat.is_group ? (
-                    <Users className="w-5 h-5 text-white" />
+                    <Users className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                   ) : (
                     (activeChat.name || activeChat.phone || 'K').charAt(0).toUpperCase()
                   )}
                 </div>
 
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <h3 className="font-bold text-xs sm:text-sm text-slate-800 dark:text-slate-100 truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition">
                     {activeChat.name || `+${activeChat.phone}`}
                   </h3>
-                  <p className="text-[11px] text-slate-400 truncate flex items-center gap-1.5">
+                  <p className="text-[10px] sm:text-[11px] text-slate-400 truncate flex items-center gap-1.5">
                     {typingMap[activeChat.jid] || (activeChat.phone && typingMap[activeChat.phone]) || (activeChat.jid && typingMap[activeChat.jid.replace(/[^0-9]/g, '')]) ? (
                       <span className="text-blue-600 dark:text-blue-400 font-bold animate-pulse">sedang mengetik...</span>
                     ) : isConnected ? (
@@ -1383,10 +1389,10 @@ export default function WaWebChatPage({ waStatus }) {
               </div>
             </div>
 
-            <div className="flex items-center gap-1 sm:gap-2">
+            <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
               <button
                 onClick={() => setDrawerOpen(true)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-bold transition ${
                   activeAiSetting?.auto_reply_enabled
                     ? 'bg-blue-50 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 shadow-xs'
                     : 'bg-slate-100 dark:bg-[#111b21] text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-[#2a3942]'
@@ -1408,7 +1414,7 @@ export default function WaWebChatPage({ waStatus }) {
                   })
                 }
                 title="Test Notifikasi Panggilan Masuk"
-                className="p-2 text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-[#111b21] rounded-xl transition"
+                className="p-1.5 sm:p-2 text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-[#111b21] rounded-xl transition hidden xs:flex"
               >
                 <Phone className="w-4 h-4" />
               </button>
@@ -1416,7 +1422,7 @@ export default function WaWebChatPage({ waStatus }) {
               <button
                 onClick={() => setDrawerOpen(true)}
                 title="Cari di obrolan"
-                className="p-2 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-[#111b21] rounded-xl transition"
+                className="p-1.5 sm:p-2 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-[#111b21] rounded-xl transition hidden sm:flex"
               >
                 <Search className="w-4 h-4" />
               </button>
@@ -1424,7 +1430,7 @@ export default function WaWebChatPage({ waStatus }) {
               <button
                 onClick={() => setDrawerOpen(true)}
                 title="Info Kontak & Setting"
-                className="p-2 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-[#111b21] rounded-xl transition"
+                className="p-1.5 sm:p-2 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-[#111b21] rounded-xl transition"
               >
                 <MoreVertical className="w-4 h-4" />
               </button>
@@ -2012,7 +2018,7 @@ export default function WaWebChatPage({ waStatus }) {
             </div>
           )}
 
-          <div className="p-3 bg-white dark:bg-[#202c33] border-t border-slate-200 dark:border-[#2a3942] flex items-center gap-2">
+          <div className="p-2 sm:p-3 bg-white dark:bg-[#202c33] border-t border-slate-200 dark:border-[#2a3942] flex items-center gap-1 sm:gap-2 w-full min-w-0 max-w-full">
             <input
               type="file"
               ref={fileInputRef}
@@ -2032,7 +2038,7 @@ export default function WaWebChatPage({ waStatus }) {
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   title="Kirim Lampiran (Foto, Video, Dokumen)"
-                  className={`p-2 rounded-xl transition ${
+                  className={`p-1.5 sm:p-2 rounded-xl transition flex-shrink-0 ${
                     attachedFile 
                       ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/30' 
                       : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#111b21]'
@@ -2044,7 +2050,7 @@ export default function WaWebChatPage({ waStatus }) {
                 <button
                   type="button"
                   title="Emoji"
-                  className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#111b21] rounded-xl transition"
+                  className="p-1.5 sm:p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#111b21] rounded-xl transition flex-shrink-0 hidden xs:flex"
                 >
                   <Smile className="w-5 h-5" />
                 </button>
@@ -2054,12 +2060,12 @@ export default function WaWebChatPage({ waStatus }) {
                   onClick={() => handleAiRewrite('friendly')}
                   disabled={rewriting || !inputText.trim()}
                   title="Poles Teks dengan AI"
-                  className="p-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 rounded-xl transition disabled:opacity-40"
+                  className="p-1.5 sm:p-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 rounded-xl transition disabled:opacity-40 flex-shrink-0"
                 >
                   <Sparkles className={`w-5 h-5 ${rewriting ? 'animate-spin' : ''}`} />
                 </button>
 
-                <div className="flex-1 bg-slate-100 dark:bg-[#2a3942] rounded-xl px-3 py-2 flex items-center border border-slate-200 dark:border-[#374248] focus-within:bg-white dark:focus-within:bg-[#2a3942] focus-within:border-blue-500 transition">
+                <div className="flex-1 min-w-0 bg-slate-100 dark:bg-[#2a3942] rounded-xl px-2.5 sm:px-3.5 py-1.5 sm:py-2 flex items-center border border-slate-200 dark:border-[#374248] focus-within:bg-white dark:focus-within:bg-[#2a3942] focus-within:border-blue-500 transition">
                   <textarea
                     ref={textareaRef}
                     value={inputText}
@@ -2072,8 +2078,8 @@ export default function WaWebChatPage({ waStatus }) {
                       }
                     }}
                     rows={1}
-                    placeholder={attachedFile ? 'Tambah keterangan file (opsional)...' : 'Ketik pesan'}
-                    className="flex-1 bg-transparent text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none resize-none max-h-32"
+                    placeholder={attachedFile ? 'Keterangan file...' : 'Ketik pesan'}
+                    className="flex-1 min-w-0 w-full bg-transparent text-xs sm:text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none resize-none max-h-32"
                   />
                 </div>
 
@@ -2082,7 +2088,7 @@ export default function WaWebChatPage({ waStatus }) {
                     onClick={handleSendMessage}
                     disabled={sending || savingEdit}
                     title="Kirim"
-                    className="p-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/30 transition active:scale-95 flex-shrink-0 disabled:opacity-50"
+                    className="p-2 sm:p-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/30 transition active:scale-95 flex-shrink-0 disabled:opacity-50 flex items-center justify-center min-w-[36px] min-h-[36px]"
                   >
                     {sending ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
@@ -2097,7 +2103,7 @@ export default function WaWebChatPage({ waStatus }) {
                     type="button"
                     onClick={() => setIsRecordingAudio(true)}
                     title="Pesan Suara"
-                    className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#111b21] rounded-xl transition flex-shrink-0"
+                    className="p-1.5 sm:p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#111b21] rounded-xl transition flex-shrink-0"
                   >
                     <Mic className="w-5 h-5" />
                   </button>

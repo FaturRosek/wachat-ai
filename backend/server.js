@@ -79,8 +79,14 @@ const startServer = async () => {
 
     await testConnection();
     await testRedisConnection();
-    const { cleanDisconnectedData } = require("./src/database/cleanupDisconnected");
+    const { cleanDisconnectedData, cleanExpiredMessages } = require("./src/database/cleanupDisconnected");
     await cleanDisconnectedData();
+    await cleanExpiredMessages(30);
+
+    setInterval(() => {
+      cleanExpiredMessages(30);
+    }, 24 * 60 * 60 * 1000);
+
     const whatsappService = require("./src/services/whatsappService");
     await whatsappService.restoreAllSavedSessions();
   });

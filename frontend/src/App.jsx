@@ -17,6 +17,7 @@ function DashboardLayout() {
   const [activeTab, setActiveTab] = useState('chat');
   const [waStatus, setWaStatus] = useState(null);
   const [unreadTotal, setUnreadTotal] = useState(0);
+  const [hasActiveChat, setHasActiveChat] = useState(false);
 
   const fetchWaStatus = async () => {
     try {
@@ -89,15 +90,20 @@ function DashboardLayout() {
     <div className="flex h-screen w-screen overflow-hidden bg-[#f4f7fb] dark:bg-[#0c1317] text-slate-800 dark:text-slate-100 antialiased select-none font-sans transition-colors duration-200">
       <NavigationRail
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={(tab) => {
+          setActiveTab(tab);
+          if (tab !== 'chat') setHasActiveChat(false);
+        }}
         waStatus={waStatus}
         unreadCount={unreadTotal}
+        hasActiveChat={hasActiveChat}
       />
 
       <main className="flex-1 flex min-w-0 h-full overflow-hidden bg-[#f4f7fb] dark:bg-[#0c1317] transition-colors duration-200">
         {activeTab === 'chat' && (
           <WaWebChatPage
             waStatus={waStatus}
+            onActiveChatChange={setHasActiveChat}
           />
         )}
 

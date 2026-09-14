@@ -4,6 +4,10 @@ const path = require('path');
 const { pool } = require('../config/database');
 
 const ensureDatabaseExists = async () => {
+  if (process.env.DATABASE_URL) {
+    // Cloud databases (Supabase, Neon, Render) already have target database created
+    return;
+  }
   const dbName = process.env.DB_NAME || 'wachat_ai';
   const { Client } = require('pg');
   const adminClient = new Client({

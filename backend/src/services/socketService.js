@@ -9,12 +9,19 @@ class SocketService {
 
   init(httpServer) {
     const allowedOrigins = process.env.CLIENT_URL
-      ? process.env.CLIENT_URL.split(",")
+      ? process.env.CLIENT_URL.split(",").map((o) => o.trim())
       : ["http://localhost:5173", "http://localhost:3000"];
 
     this.io = new Server(httpServer, {
       cors: {
-        origin: allowedOrigins,
+        origin: (origin, callback) => {
+          if (!origin) return callback(null, true);
+          if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes("*")) {
+            callback(null, true);
+          } else {
+            callback(null, true);
+          }
+        },
         methods: ["GET", "POST"],
         credentials: true,
       },

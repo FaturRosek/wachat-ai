@@ -13,13 +13,14 @@ export default function NewChatModal({ isOpen, onClose, contacts = [], onSelectC
     e.preventDefault();
     setError('');
 
-    const clean = phone.replace(/[^0-9]/g, '');
-    if (!clean || clean.length < 8) {
-      setError('Masukkan nomor WhatsApp yang valid (contoh: 08123456789 atau 628123456789)');
+    const formatted = formatPhoneNumber(phone);
+    if (!formatted.isValid) {
+      setError(formatted.error || 'Masukkan nomor WhatsApp yang valid (contoh: 08123456789 atau 628123456789)');
       return;
     }
 
-    const jid = clean.startsWith('62') ? `${clean}@s.whatsapp.net` : clean.startsWith('0') ? `62${clean.slice(1)}@s.whatsapp.net` : `${clean}@s.whatsapp.net`;
+    const clean = formatted.formattedPhone;
+    const jid = `${clean}@s.whatsapp.net`;
     const contactObj = {
       jid,
       phone: clean,

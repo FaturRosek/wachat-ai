@@ -1595,15 +1595,18 @@ class WhatsappService {
       throw new Error("WhatsApp Anda belum terhubung. Silakan hubungkan WhatsApp terlebih dahulu.");
     }
 
-    const isGroup = jid.endsWith("@g.us");
+    const isGroup = typeof jid === "string" && jid.endsWith("@g.us");
     let cleanJid = jid;
-    let cleanPhone = isGroup ? jid : jid.replace(/[^0-9]/g, "");
+    let cleanPhone = isGroup ? jid : (jid ? String(jid).replace(/[^0-9]/g, "") : "");
 
-    if (jid.endsWith("@lid")) {
+    if (typeof jid === "string" && jid.endsWith("@lid")) {
       const resolved = this.resolveLidToPhone(userId, sessionName, jid);
       cleanJid = resolved.jid;
       cleanPhone = resolved.phone;
-    } else if (!isGroup && !jid.includes("@")) {
+    } else if (!isGroup) {
+      const numOnly = (jid && String(jid).includes("@") ? String(jid).split("@")[0] : cleanPhone).replace(/[^0-9]/g, "");
+      const formatted = formatPhoneNumber(numOnly);
+      cleanPhone = formatted.isValid ? formatted.formattedPhone : numOnly;
       cleanJid = `${cleanPhone}@s.whatsapp.net`;
     }
 
@@ -1982,29 +1985,27 @@ class WhatsappService {
       } catch (e) {}
     }
 
-    if (dbSession) {
-      if (dbSession.status === "CONNECTED" && dbSession.phone_number) {
-        return {
-          status: dbSession.status,
-          phoneNumber: dbSession.phone_number,
-          pairingPhone: null,
-          pairingCode: null,
-          qrCode: null,
-          sessionName: dbSession.session_name,
-          updatedAt: dbSession.updated_at,
-        };
-      }
-      if (dbSession.status === "PAIRING_CODE" && dbSession.session_data?.pairingCode) {
-        return {
-          status: "PAIRING_CODE",
+    if (dbSession && dbSession.status === "CONNECTED") {
+      try {
+        await WhatsappSessionModel.updateStatus(userId, "DISCONNECTED", {
           phoneNumber: null,
-          pairingPhone: dbSession.session_data?.pairingPhone || dbSession.phone_number || null,
-          pairingCode: dbSession.session_data?.pairingCode || null,
           qrCode: null,
-          sessionName: dbSession.session_name,
-          updatedAt: dbSession.updated_at,
-        };
-      }
+          sessionData: null,
+          sessionName,
+        });
+      } catch (e) {}
+    }
+
+    if (dbSession && dbSession.status === "PAIRING_CODE" && dbSession.session_data?.pairingCode) {
+      return {
+        status: "PAIRING_CODE",
+        phoneNumber: null,
+        pairingPhone: dbSession.session_data?.pairingPhone || dbSession.phone_number || null,
+        pairingCode: dbSession.session_data?.pairingCode || null,
+        qrCode: null,
+        sessionName: dbSession.session_name,
+        updatedAt: dbSession.updated_at,
+      };
     }
 
     return {
@@ -2261,7 +2262,10 @@ class WhatsappService {
       const resolved = this.resolveLidToPhone(userId, sessionName, jid);
       cleanJid = resolved.jid;
       cleanPhone = resolved.phone;
-    } else if (!isGroup && jid && !jid.includes("@")) {
+    } else if (!isGroup) {
+      const numOnly = (jid && String(jid).includes("@") ? String(jid).split("@")[0] : cleanPhone).replace(/[^0-9]/g, "");
+      const formatted = formatPhoneNumber(numOnly);
+      cleanPhone = formatted.isValid ? formatted.formattedPhone : numOnly;
       cleanJid = `${cleanPhone}@s.whatsapp.net`;
     }
 
@@ -2435,13 +2439,16 @@ class WhatsappService {
 
     const isGroup = typeof jid === "string" && jid.endsWith("@g.us");
     let cleanJid = jid;
-    let cleanPhone = isGroup ? jid : jid.replace(/[^0-9]/g, "");
+    let cleanPhone = isGroup ? jid : (jid ? String(jid).replace(/[^0-9]/g, "") : "");
 
-    if (jid.endsWith("@lid")) {
+    if (typeof jid === "string" && jid.endsWith("@lid")) {
       const resolved = this.resolveLidToPhone(userId, sessionName, jid);
       cleanJid = resolved.jid;
       cleanPhone = resolved.phone;
-    } else if (!isGroup && !jid.includes("@")) {
+    } else if (!isGroup) {
+      const numOnly = (jid && String(jid).includes("@") ? String(jid).split("@")[0] : cleanPhone).replace(/[^0-9]/g, "");
+      const formatted = formatPhoneNumber(numOnly);
+      cleanPhone = formatted.isValid ? formatted.formattedPhone : numOnly;
       cleanJid = `${cleanPhone}@s.whatsapp.net`;
     }
 

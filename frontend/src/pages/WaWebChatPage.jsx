@@ -33,6 +33,10 @@ import {
   Archive,
   ArchiveRestore,
   Reply,
+  Download,
+  Loader2,
+  FileText,
+  Film,
 } from 'lucide-react';
 import apiClient from '../api/apiClient';
 import { useSocket } from '../context/SocketContext';
@@ -57,6 +61,10 @@ export default function WaWebChatPage({ waStatus }) {
   const [filterTab, setFilterTab] = useState('all');
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [previewMedia, setPreviewMedia] = useState(null);
+  const [attachedFile, setAttachedFile] = useState(null);
+  const [isViewOnce, setIsViewOnce] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef(null);
 
   const [activeMenuMsgId, setActiveMenuMsgId] = useState(null);
   const [activeMenuChatJid, setActiveMenuChatJid] = useState(null);
@@ -89,6 +97,14 @@ export default function WaWebChatPage({ waStatus }) {
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const formatFileSize = (bytes) => {
+    if (!bytes || isNaN(bytes)) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   };
 
   const fetchChats = async () => {
@@ -364,20 +380,35 @@ export default function WaWebChatPage({ waStatus }) {
       );
     });
 
-    const unsubEdit = onEvent('message_edited', ({ messageId, newContent, remoteJid, rawData }) => {
+    const unsubEdit = onEvent('message_edited', ({ messageId, newContent, mediaUrl, mediaType, mediaCaption, remoteJid, rawData }) => {
       setMessages((prev) =>
         prev.map((m) => {
           if (m.message_id === messageId || m.id === messageId) {
             const currentRaw = typeof m.raw_data === 'object' && m.raw_data ? m.raw_data : {};
             return {
               ...m,
-              content: newContent,
+              content: newContent !== undefined ? newContent : m.content,
+              media_url: mediaUrl !== undefined ? mediaUrl : m.media_url,
+              media_type: mediaType !== undefined ? mediaType : m.media_type,
+              media_caption: mediaCaption !== undefined ? mediaCaption : m.media_caption,
               raw_data: {
                 ...currentRaw,
                 ...(rawData || {}),
-                isEdited: true,
+                isEdited: rawData?.isEdited ?? m.raw_data?.isEdited,
               },
             };
+          }
+          return m;
+        })
+      );
+    });
+
+    const unsubMsgUpdated = onEvent('message_updated', ({ message }) => {
+      if (!message) return;
+      setMessages((prev) =>
+        prev.map((m) => {
+          if ((m.message_id && m.message_id === message.message_id) || (m.id && m.id === message.id)) {
+            return { ...m, ...message };
           }
           return m;
         })
@@ -403,6 +434,7 @@ export default function WaWebChatPage({ waStatus }) {
       unsubAvatarUpdate();
       unsubRevoke();
       unsubEdit();
+      unsubMsgUpdated();
       unsubDeleteForMe();
     };
   }, [activeChat, onEvent]);
@@ -622,13 +654,194 @@ export default function WaWebChatPage({ waStatus }) {
     }
   };
 
+  const attachFile = (file) => {
+    if (!file) return;
+
+    const typeStr = (file.type || '').toLowerCase();
+    let nameStr = file.name || '';
+
+    let mediaType = 'document';
+    if (typeStr.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif)$/i.test(nameStr)) {
+      mediaType = 'image';
+      if (!nameStr || nameStr === 'image.png' || nameStr === 'blob') {
+        const ext = typeStr.split('/')[1] || 'png';
+        nameStr = `image_${Date.now()}.${ext}`;
+      }
+    } else if (typeStr.startsWith('video/') || /\.(mp4|mov|mkv|avi|webm)$/i.test(nameStr)) {
+      mediaType = 'video';
+    } else if (typeStr.startsWith('audio/') || /\.(mp3|ogg|wav|m4a|aac)$/i.test(nameStr)) {
+      mediaType = 'audio';
+    }
+
+    if (attachedFile?.previewUrl) {
+      URL.revokeObjectURL(attachedFile.previewUrl);
+    }
+
+    const previewUrl = (mediaType === 'image' || mediaType === 'video' || mediaType === 'audio')
+      ? URL.createObjectURL(file)
+      : null;
+
+    setAttachedFile({
+      file,
+      previewUrl,
+      type: mediaType,
+      name: nameStr || file.name || 'attachment',
+      size: file.size,
+    });
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  };
+
+  const handleFileSelected = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      attachFile(file);
+    }
+  };
+
+  const handlePaste = (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.kind === 'file') {
+        const file = item.getAsFile();
+        if (file) {
+          e.preventDefault();
+          attachFile(file);
+          return;
+        }
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handleGlobalPaste = (e) => {
+      if (!activeChat || newChatModalOpen || drawerOpen || isRecordingAudio) return;
+
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.kind === 'file') {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault();
+            attachFile(file);
+            return;
+          }
+        }
+      }
+    };
+
+    window.addEventListener('paste', handleGlobalPaste);
+    return () => {
+      window.removeEventListener('paste', handleGlobalPaste);
+    };
+  }, [activeChat, newChatModalOpen, drawerOpen, isRecordingAudio]);
+
+  const handleCancelAttachment = () => {
+    if (attachedFile?.previewUrl) {
+      URL.revokeObjectURL(attachedFile.previewUrl);
+    }
+    setAttachedFile(null);
+    setIsViewOnce(false);
+  };
+
   const handleSendMessage = async (e) => {
     if (e) e.preventDefault();
     if (editingMessage) {
       handleSaveEdit();
       return;
     }
-    if (!inputText.trim() || !activeChat || sending) return;
+    if ((!inputText.trim() && !attachedFile) || !activeChat || sending) return;
+
+    if (attachedFile) {
+      const currentFile = attachedFile;
+      const captionText = inputText.trim();
+      const targetReplying = replyingMessage;
+      const sendAsViewOnce = isViewOnce && (currentFile.type === 'image' || currentFile.type === 'video');
+
+      setAttachedFile(null);
+      setIsViewOnce(false);
+      setInputText('');
+      setReplyingMessage(null);
+      setSending(true);
+
+      const tempId = 'temp_media_' + Date.now();
+      const tempMessage = {
+        id: tempId,
+        phone: activeChat.phone,
+        remote_jid: activeChat.jid,
+        content: captionText || (sendAsViewOnce ? (currentFile.type === 'video' ? '👁️ Video (Sekali Lihat)' : '👁️ Foto (Sekali Lihat)') : (currentFile.type === 'image' ? '📷 Foto' : (currentFile.type === 'video' ? '🎥 Video' : (currentFile.type === 'audio' ? '🎵 Audio' : `📄 ${currentFile.name}`)))),
+        media_type: sendAsViewOnce ? 'view_once' : currentFile.type,
+        media_url: currentFile.previewUrl,
+        media_caption: captionText || (sendAsViewOnce ? (currentFile.type === 'video' ? '👁️ Video Sekali Lihat' : '👁️ Foto Sekali Lihat') : (currentFile.type === 'document' ? currentFile.name : null)),
+        direction: 'OUTGOING',
+        status: 'PENDING',
+        from_me: true,
+        quoted_message: targetReplying ? {
+          messageId: targetReplying.message_id || targetReplying.id,
+          senderName: targetReplying.from_me ? 'Anda' : (targetReplying.sender_name || (targetReplying.phone ? `+${targetReplying.phone}` : 'Kontak')),
+          senderPhone: targetReplying.phone || null,
+          content: targetReplying.content || (targetReplying.media_type === 'image' ? '📷 Foto' : (targetReplying.media_type === 'video' ? '🎥 Video' : (targetReplying.media_type === 'voice' || targetReplying.media_type === 'audio' ? '🎤 Pesan Suara' : 'Pesan'))),
+          mediaType: targetReplying.media_type || 'text',
+          fromMe: !!targetReplying.fromMe,
+        } : null,
+        sent_at: new Date(),
+      };
+
+      setMessages((prev) => [...prev, tempMessage]);
+      scrollToBottom();
+
+      const formData = new FormData();
+      formData.append('file', currentFile.file, currentFile.name);
+      formData.append('jid', activeChat.jid || activeChat.phone);
+      if (sendAsViewOnce) {
+        formData.append('isViewOnce', 'true');
+      }
+      if (captionText) formData.append('caption', captionText);
+      if (targetReplying) {
+        formData.append('quotedMessageId', targetReplying.message_id || targetReplying.id);
+      }
+
+      try {
+        const res = await apiClient.post('/chats/send-media', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+
+        if (res.data.success && res.data.data) {
+          const saved = res.data.data;
+          setMessages((prev) => {
+            const exists = prev.some(
+              (m) => (m.id && m.id === saved.id) || (m.message_id && m.message_id === saved.message_id)
+            );
+            if (exists) {
+              return prev.filter((m) => m.id !== tempId);
+            }
+            return prev.map((m) => (m.id === tempId ? saved : m));
+          });
+        }
+      } catch (err) {
+        console.error('Failed to send file:', err);
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...m, status: 'FAILED' } : m))
+        );
+      } finally {
+        setSending(false);
+        if (textareaRef.current) {
+          textareaRef.current.style.height = 'auto';
+        }
+      }
+      return;
+    }
 
     const messageText = inputText.trim();
     const targetReplying = replyingMessage;
@@ -651,7 +864,7 @@ export default function WaWebChatPage({ waStatus }) {
         senderPhone: targetReplying.phone || null,
         content: targetReplying.content || (targetReplying.media_type === 'image' ? '📷 Foto' : (targetReplying.media_type === 'video' ? '🎥 Video' : (targetReplying.media_type === 'voice' || targetReplying.media_type === 'audio' ? '🎤 Pesan Suara' : 'Pesan'))),
         mediaType: targetReplying.media_type || 'text',
-        fromMe: !!targetReplying.from_me,
+        fromMe: !!targetReplying.fromMe,
       } : null,
       sent_at: new Date(),
     };
@@ -716,7 +929,7 @@ export default function WaWebChatPage({ waStatus }) {
         senderPhone: targetReplying.phone || null,
         content: targetReplying.content || (targetReplying.media_type === 'image' ? '📷 Foto' : (targetReplying.media_type === 'video' ? '🎥 Video' : (targetReplying.media_type === 'voice' || targetReplying.media_type === 'audio' ? '🎤 Pesan Suara' : 'Pesan'))),
         mediaType: targetReplying.media_type || 'text',
-        fromMe: !!targetReplying.from_me,
+        fromMe: !!targetReplying.fromMe,
       } : null,
       sent_at: new Date(),
     };
@@ -843,7 +1056,6 @@ export default function WaWebChatPage({ waStatus }) {
           </div>
 
           <div className="flex items-center gap-1">
-
             <button
               onClick={handleSyncAll}
               disabled={syncing}
@@ -1100,7 +1312,35 @@ export default function WaWebChatPage({ waStatus }) {
       </div>
 
       {activeChat ? (
-        <div className="flex-1 flex flex-col min-w-0 h-full bg-[#f4f7fb] dark:bg-[#0b141a] relative transition-colors duration-200">
+        <div
+          onPaste={handlePaste}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDragging(true);
+          }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            setIsDragging(false);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragging(false);
+            const file = e.dataTransfer?.files?.[0];
+            if (file) {
+              attachFile(file);
+            }
+          }}
+          className="flex-1 flex flex-col min-w-0 h-full bg-[#f4f7fb] dark:bg-[#0b141a] relative transition-colors duration-200"
+        >
+          {isDragging && (
+            <div className="absolute inset-0 z-50 bg-blue-600/10 dark:bg-blue-500/20 backdrop-blur-xs border-2 border-dashed border-blue-500 rounded-xl m-4 flex flex-col items-center justify-center pointer-events-none transition-all animate-in fade-in">
+              <div className="w-16 h-16 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-lg mb-3">
+                <Paperclip className="w-8 h-8" />
+              </div>
+              <p className="font-bold text-sm text-blue-700 dark:text-blue-300">Lepaskan file di sini</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Foto, video, atau dokumen akan otomatis terlampir</p>
+            </div>
+          )}
           <div className="px-4 py-3 bg-white dark:bg-[#202c33] flex items-center justify-between z-10 border-b border-slate-200/90 dark:border-[#2a3942] shadow-2xs">
             <div className="flex items-center gap-3 min-w-0">
               <button
@@ -1372,7 +1612,113 @@ export default function WaWebChatPage({ waStatus }) {
                                 return <WhatsAppAudioPlayer audioUrl={msg.media_url} isMe={isMe} senderAvatar={msg.sender_avatar} />;
                               }
 
-                              if (msg.media_type === 'video' && msg.media_url) {
+                              const isVideo = msg.media_type === 'video' || (msg.media_url && (msg.media_url.endsWith('.mp4') || msg.media_url.endsWith('.webm') || msg.media_url.endsWith('.mov') || msg.media_url.endsWith('.avi') || msg.media_url.endsWith('.mkv'))) || (msg.content && msg.content.toLowerCase().includes('video')) || (msg.media_caption && msg.media_caption.toLowerCase().includes('video'));
+
+                              if (msg.media_type === 'view_once' || isVo) {
+                                return (
+                                  <div className="mb-1 select-none">
+                                    <div
+                                      onClick={() => {
+                                        if (msg.media_url) {
+                                          setPreviewMedia({
+                                            type: isVideo ? 'video' : 'image',
+                                            url: msg.media_url,
+                                            caption: msg.content !== '📷 Foto' && msg.content !== '👁️ Foto (Sekali Lihat)' && msg.content !== '👁️ Foto / Video (Sekali Lihat)' ? msg.content : '',
+                                            isViewOnce: true,
+                                          });
+                                        } else {
+                                          alert('Media sekali lihat terenkripsi oleh WhatsApp dan hanya dapat dibuka di HP utama.');
+                                        }
+                                      }}
+                                      className={`flex items-center gap-3 p-3 rounded-2xl border transition shadow-xs ${
+                                        msg.media_url ? 'cursor-pointer hover:brightness-105 active:scale-[0.99]' : 'opacity-90'
+                                      } ${
+                                        isMe
+                                          ? 'bg-blue-700/60 border-blue-400/40 text-white'
+                                          : 'bg-white/95 dark:bg-[#1f2c34] border-slate-200 dark:border-[#2a3942] text-slate-800 dark:text-slate-100'
+                                      }`}
+                                    >
+                                      {/* Dashed circle 1x badge */}
+                                      <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 font-bold border-2 border-dashed ${
+                                        isMe
+                                          ? 'border-amber-300 text-amber-300 bg-amber-400/20'
+                                          : 'border-amber-500 text-amber-600 dark:text-amber-400 bg-amber-500/15'
+                                      }`}>
+                                        <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black border border-current">
+                                          1
+                                        </div>
+                                      </div>
+
+                                      {/* Content info */}
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2">
+                                          <p className="text-xs sm:text-sm font-bold truncate">
+                                            {isVideo ? 'Video' : 'Foto'}
+                                          </p>
+                                          <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold ${
+                                            isMe ? 'bg-blue-900/60 text-blue-200' : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                                          }`}>
+                                            1x Sekali Lihat
+                                          </span>
+                                        </div>
+                                        <p className={`text-[10px] mt-0.5 ${isMe ? 'text-blue-100' : 'text-slate-500 dark:text-slate-400'}`}>
+                                          {msg.media_url ? 'Klik untuk melihat media' : 'Pesan terenkripsi sekali lihat'}
+                                        </p>
+                                      </div>
+
+                                      {/* Action buttons (View & Download) */}
+                                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (msg.media_url) {
+                                              setPreviewMedia({
+                                                type: isVideo ? 'video' : 'image',
+                                                url: msg.media_url,
+                                                caption: msg.content !== '📷 Foto' && msg.content !== '👁️ Foto (Sekali Lihat)' && msg.content !== '👁️ Foto / Video (Sekali Lihat)' ? msg.content : '',
+                                                isViewOnce: true,
+                                              });
+                                            } else {
+                                              alert('Media sekali lihat terenkripsi oleh WhatsApp dan hanya dapat dibuka di HP utama.');
+                                            }
+                                          }}
+                                          className={`p-2 rounded-xl transition cursor-pointer ${
+                                            isMe
+                                              ? 'bg-blue-800/60 hover:bg-blue-800 text-white'
+                                              : 'bg-slate-100 dark:bg-[#2a3942] hover:bg-slate-200 dark:hover:bg-[#374248] text-slate-700 dark:text-slate-200'
+                                          }`}
+                                          title="Buka & Lihat Media"
+                                        >
+                                          <Eye className="w-4 h-4" />
+                                        </button>
+
+                                        {msg.media_url && (
+                                          <a
+                                            href={msg.media_url}
+                                            download
+                                            onClick={(e) => e.stopPropagation()}
+                                            title="Download Media"
+                                            className={`p-2 rounded-xl transition cursor-pointer ${
+                                              isMe
+                                                ? 'bg-blue-800/60 hover:bg-blue-800 text-white'
+                                                : 'bg-slate-100 dark:bg-[#2a3942] hover:bg-slate-200 dark:hover:bg-[#374248] text-slate-700 dark:text-slate-200'
+                                            }`}
+                                          >
+                                            <Download className="w-4 h-4" />
+                                          </a>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {msg.content && msg.content !== '📷 Foto' && msg.content !== '👁️ Foto (Sekali Lihat)' && msg.content !== '👁️ Foto / Video (Sekali Lihat)' && (
+                                      <p className="whitespace-pre-wrap break-words mt-1 text-xs">{msg.content}</p>
+                                    )}
+                                  </div>
+                                );
+                              }
+
+                              if (isVideo && msg.media_url) {
                                 return (
                                   <WhatsAppVideoPlayer
                                     videoUrl={msg.media_url}
@@ -1400,39 +1746,66 @@ export default function WaWebChatPage({ waStatus }) {
                                       isViewOnce: isVo
                                     })}
                                   >
-                                    {isVo && (
-                                      <div className="absolute top-2 left-2 z-10 flex items-center gap-1 px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-xs text-amber-300 border border-amber-400/40 text-[10px] font-bold shadow-md">
-                                        <Eye className="w-3 h-3 text-amber-400 animate-pulse" />
-                                        <span>Sekali Lihat</span>
-                                      </div>
-                                    )}
+                                    <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition duration-150 flex items-center gap-1.5">
+                                      <a
+                                        href={msg.media_url}
+                                        download
+                                        onClick={(e) => e.stopPropagation()}
+                                        title="Download Foto"
+                                        className="p-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white backdrop-blur-xs transition shadow-md cursor-pointer"
+                                      >
+                                        <Download className="w-3.5 h-3.5" />
+                                      </a>
+                                    </div>
                                     <img
                                       src={msg.media_url}
                                       alt="Foto"
                                       className="w-full h-auto object-cover max-h-60 rounded-xl transition-transform duration-200 group-hover:scale-[1.02]"
                                     />
-                                    {msg.content && msg.content !== '📷 Foto' && msg.content !== '👁️ Foto (Sekali Lihat)' && (
+                                    {msg.content && msg.content !== '📷 Foto' && msg.content !== '👁️ Foto (Sekali Lihat)' && msg.content !== '👁️ Foto / Video (Sekali Lihat)' && (
                                       <p className="whitespace-pre-wrap break-words mt-1">{msg.content}</p>
                                     )}
                                   </div>
                                 );
                               }
 
-                              if (msg.media_type === 'view_once' || isVo) {
+                              if (msg.media_type === 'document' || (msg.media_url && (msg.media_url.endsWith('.pdf') || msg.media_url.endsWith('.doc') || msg.media_url.endsWith('.docx') || msg.media_url.endsWith('.xls') || msg.media_url.endsWith('.xlsx') || msg.media_url.endsWith('.zip') || msg.media_url.endsWith('.rar') || msg.media_url.endsWith('.txt')))) {
+                                const fileName = msg.media_caption || (msg.content && msg.content.startsWith('📄 ') ? msg.content.replace('📄 ', '') : (msg.content || 'Dokumen'));
                                 return (
-                                  <div className="flex items-center gap-3 py-1.5 px-2 rounded-xl bg-amber-500/10 dark:bg-amber-950/40 border border-amber-400/30 text-amber-900 dark:text-amber-200 select-none">
-                                    <div className="w-8 h-8 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-500 flex items-center justify-center flex-shrink-0">
-                                      <Eye className="w-4 h-4 animate-pulse" />
+                                  <div className="mb-1 max-w-xs">
+                                    <div className={`flex items-center gap-3 p-3 rounded-xl border transition ${
+                                      isMe 
+                                        ? 'bg-blue-700/50 border-blue-500/40 text-white' 
+                                        : 'bg-slate-100 dark:bg-[#111b21] border-slate-200 dark:border-[#2a3942] text-slate-800 dark:text-slate-100'
+                                    }`}>
+                                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 shadow-xs ${
+                                        isMe ? 'bg-blue-600 text-white' : 'bg-rose-500/10 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/20'
+                                      }`}>
+                                        <FileText className="w-5 h-5" />
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-xs font-semibold truncate select-all">{fileName}</p>
+                                        <span className={`text-[10px] ${isMe ? 'text-blue-200' : 'text-slate-400 dark:text-slate-400'}`}>Dokumen</span>
+                                      </div>
+                                      {msg.media_url && (
+                                        <a
+                                          href={msg.media_url}
+                                          download={fileName}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          onClick={(e) => e.stopPropagation()}
+                                          title="Download Dokumen"
+                                          className={`p-2 rounded-lg transition flex-shrink-0 cursor-pointer ${
+                                            isMe ? 'bg-blue-800/60 hover:bg-blue-800 text-white' : 'bg-slate-200 dark:bg-[#202c33] hover:bg-slate-300 dark:hover:bg-[#2a3942] text-slate-700 dark:text-slate-200'
+                                          }`}
+                                        >
+                                          <Download className="w-4 h-4" />
+                                        </a>
+                                      )}
                                     </div>
-                                    <div className="min-w-0 flex-1">
-                                      <p className="font-bold text-xs flex items-center gap-1.5">
-                                        <span>Pesan Sekali Lihat</span>
-                                        <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-amber-500/20 font-semibold">1x</span>
-                                      </p>
-                                      <p className="text-[10px] opacity-80 mt-0.5">
-                                        Buka langsung di aplikasi WhatsApp ponsel Anda
-                                      </p>
-                                    </div>
+                                    {msg.content && msg.content !== `📄 ${fileName}` && msg.content !== fileName && msg.content !== '📄 Dokumen' && (
+                                      <p className="whitespace-pre-wrap break-words mt-1 text-xs">{msg.content}</p>
+                                    )}
                                   </div>
                                 );
                               }
@@ -1576,7 +1949,78 @@ export default function WaWebChatPage({ waStatus }) {
             </div>
           )}
 
+          {attachedFile && (
+            <div className="px-4 py-2.5 bg-slate-100/95 dark:bg-[#202c33]/95 backdrop-blur-xs border-t border-slate-200 dark:border-[#2a3942] flex items-center justify-between text-xs animate-in slide-in-from-bottom-2">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                {attachedFile.type === 'image' && attachedFile.previewUrl ? (
+                  <div className="w-12 h-12 rounded-lg overflow-hidden border border-slate-300 dark:border-[#374248] flex-shrink-0 bg-black/5 shadow-xs">
+                    <img src={attachedFile.previewUrl} alt="Preview" className="w-full h-full object-cover" />
+                  </div>
+                ) : attachedFile.type === 'video' && attachedFile.previewUrl ? (
+                  <div className="w-12 h-12 rounded-lg overflow-hidden border border-slate-300 dark:border-[#374248] flex-shrink-0 bg-black/10 flex items-center justify-center relative shadow-xs">
+                    <video src={attachedFile.previewUrl} className="w-full h-full object-cover" />
+                    <Film className="w-5 h-5 text-white drop-shadow-md absolute" />
+                  </div>
+                ) : (
+                  <div className="w-10 h-10 rounded-lg bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800/60 flex items-center justify-center text-blue-600 dark:text-blue-400 flex-shrink-0 shadow-xs">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold text-[12px] text-slate-800 dark:text-slate-100 truncate">
+                    {attachedFile.name}
+                  </p>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mt-0.5">
+                    <span className="uppercase font-semibold tracking-wider text-[9px] px-1.5 py-0.2 rounded bg-slate-200 dark:bg-[#2a3942] text-slate-600 dark:text-slate-300">
+                      {attachedFile.type}
+                    </span>
+                    <span>{formatFileSize(attachedFile.size)}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 ml-2 flex-shrink-0">
+                {(attachedFile.type === 'image' || attachedFile.type === 'video') && (
+                  <button
+                    type="button"
+                    onClick={() => setIsViewOnce(!isViewOnce)}
+                    title={isViewOnce ? 'Pesan Sekali Lihat Aktif (Klik untuk matikan)' : 'Kirim sebagai Sekali Lihat (1x)'}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold transition shadow-xs cursor-pointer ${
+                      isViewOnce
+                        ? 'bg-amber-500 hover:bg-amber-600 text-white ring-2 ring-amber-400/50'
+                        : 'bg-slate-200 dark:bg-[#2a3942] hover:bg-slate-300 dark:hover:bg-[#374248] text-slate-700 dark:text-slate-200'
+                    }`}
+                  >
+                    <div className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] font-black border ${
+                      isViewOnce ? 'border-white text-white' : 'border-slate-500 dark:border-slate-400 text-slate-700 dark:text-slate-200'
+                    }`}>
+                      1
+                    </div>
+                    <span>{isViewOnce ? 'Sekali Lihat' : '1x'}</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleCancelAttachment}
+                  className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-slate-200 dark:hover:bg-[#2a3942] rounded-lg transition"
+                  title="Batalkan Lampiran"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="p-3 bg-white dark:bg-[#202c33] border-t border-slate-200 dark:border-[#2a3942] flex items-center gap-2">
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileSelected}
+              className="hidden"
+              accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar"
+            />
+
             {isRecordingAudio ? (
               <VoiceNoteRecorder
                 onSend={handleSendVoiceNote}
@@ -1586,8 +2030,13 @@ export default function WaWebChatPage({ waStatus }) {
               <>
                 <button
                   type="button"
-                  title="Lampiran"
-                  className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#111b21] rounded-xl transition"
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Kirim Lampiran (Foto, Video, Dokumen)"
+                  className={`p-2 rounded-xl transition ${
+                    attachedFile 
+                      ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/30' 
+                      : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#111b21]'
+                  }`}
                 >
                   <Paperclip className="w-5 h-5" />
                 </button>
@@ -1615,6 +2064,7 @@ export default function WaWebChatPage({ waStatus }) {
                     ref={textareaRef}
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
+                    onPaste={handlePaste}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
@@ -1622,18 +2072,25 @@ export default function WaWebChatPage({ waStatus }) {
                       }
                     }}
                     rows={1}
-                    placeholder="Ketik pesan"
+                    placeholder={attachedFile ? 'Tambah keterangan file (opsional)...' : 'Ketik pesan'}
                     className="flex-1 bg-transparent text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none resize-none max-h-32"
                   />
                 </div>
 
-                {inputText.trim() ? (
+                {inputText.trim() || attachedFile ? (
                   <button
                     onClick={handleSendMessage}
                     disabled={sending || savingEdit}
-                    className="p-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/30 transition active:scale-95 flex-shrink-0"
+                    title="Kirim"
+                    className="p-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/30 transition active:scale-95 flex-shrink-0 disabled:opacity-50"
                   >
-                    {editingMessage ? <Check className="w-4 h-4" /> : <Send className="w-4 h-4" />}
+                    {sending ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : editingMessage ? (
+                      <Check className="w-4 h-4" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
                   </button>
                 ) : (
                   <button
@@ -1654,7 +2111,7 @@ export default function WaWebChatPage({ waStatus }) {
           <div className="w-full"></div>
 
           <div className="flex flex-col items-center max-w-md">
-            <div className="w-24 h-24 rounded-3xl bg-emerald-50 dark:bg-[#202c33] border border-emerald-200/80 dark:border-emerald-800/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shadow-md mb-6 relative">
+            <div className="w-24 h-24 rounded-3xl bg-blue-50 dark:bg-[#202c33] border border-blue-200/80 dark:border-blue-800/40 text-blue-600 dark:text-blue-400 flex items-center justify-center shadow-md mb-6 relative">
               <Phone className="w-12 h-12" />
               <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs shadow-md">
                 <Bot className="w-4 h-4" />
@@ -1670,7 +2127,7 @@ export default function WaWebChatPage({ waStatus }) {
 
             <button
               onClick={() => setNewChatModalOpen(true)}
-              className="px-6 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md shadow-emerald-600/30 transition active:scale-95 mb-8"
+              className="px-6 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-600/30 transition active:scale-95 mb-8"
             >
               Mulai Obrolan Baru
             </button>
@@ -1720,7 +2177,7 @@ export default function WaWebChatPage({ waStatus }) {
           </div>
 
           <div className="flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+            <ShieldCheck className="w-3.5 h-3.5 text-blue-500" />
             <span>Pesan pribadi Anda terenkripsi secara end-to-end</span>
           </div>
         </div>

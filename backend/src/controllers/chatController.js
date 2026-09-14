@@ -76,6 +76,14 @@ const ChatController = {
         WhatsappService.fetchProfilePicture(req.user.id, 'default', jid).catch(() => {});
       }
 
+      if (Array.isArray(messages)) {
+        for (const m of messages) {
+          if ((m.media_type === 'view_once' || m.raw_data?.isViewOnce) && !m.media_url && m.message_id) {
+            WhatsappService.requestMissingMedia(req.user.id, 'default', m.message_id, m.remote_jid || jid).catch(() => {});
+          }
+        }
+      }
+
       res.status(200).json({
         success: true,
         data: {
@@ -141,6 +149,39 @@ const ChatController = {
       res.status(200).json({
         success: true,
         message: 'Voice Note berhasil dikirim!',
+        data: result
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async sendMedia(req, res, next) {
+    try {
+      const { jid, caption = '', isViewOnce = false, quotedMessageId = null, sessionName = 'default' } = req.body;
+      const file = req.file;
+
+      if (!jid || !file) {
+        return res.status(400).json({
+          success: false,
+          message: 'JID penerima dan file lampiran wajib disertakan'
+        });
+      }
+
+      const result = await WhatsappService.sendMediaMessage(req.user.id, {
+        jid,
+        fileBuffer: file.buffer,
+        fileName: file.originalname,
+        mimeType: file.mimetype,
+        caption,
+        isViewOnce: isViewOnce === 'true' || isViewOnce === true || isViewOnce === 1,
+        quotedMessageId,
+        sessionName
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'File berhasil dikirim!',
         data: result
       });
     } catch (error) {
@@ -451,6 +492,30 @@ const ChatController = {
         data: {
           syncResult: result,
           chats: updatedChats
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async getViewOnceMedia(req, res, next) {
+    try {
+      const userId = req.user.id;
+      const { limit = 100, offset = 0, mediaType, search } = req.query;
+
+      const mediaList = await MessageModel.getViewOnceMedia(userId, {
+        limit: parseInt(limit, 10) || 100,
+        offset: parseInt(offset, 10) || 0,
+        mediaType,
+        search
+      });
+
+      res.status(200).json({
+        success: true,
+        data: {
+          items: mediaList,
+          total: mediaList.length
         }
       });
     } catch (error) {

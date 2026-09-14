@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Play, Pause, Maximize2, Volume2, VolumeX, Eye } from 'lucide-react';
+import { Play, Pause, Maximize2, Volume2, VolumeX, Eye, Download } from 'lucide-react';
 
 export default function WhatsAppVideoPlayer({ videoUrl, isMe = false, caption = null, isViewOnce = false, onExpand = null }) {
   const videoRef = useRef(null);
@@ -40,19 +40,30 @@ export default function WhatsAppVideoPlayer({ videoUrl, isMe = false, caption = 
         </div>
       )}
 
-      {onExpand && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onExpand();
-          }}
-          title="Lihat Layar Penuh"
-          className="absolute top-2 right-2 z-10 p-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white/90 transition backdrop-blur-xs cursor-pointer opacity-0 group-hover:opacity-100 duration-200"
+      <div className="absolute top-2 right-2 z-10 flex items-center gap-1 opacity-0 group-hover:opacity-100 duration-200">
+        <a
+          href={videoUrl}
+          download
+          onClick={(e) => e.stopPropagation()}
+          title="Download Video"
+          className="p-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white/90 transition backdrop-blur-xs cursor-pointer shadow-md"
         >
-          <Maximize2 className="w-3.5 h-3.5" />
-        </button>
-      )}
+          <Download className="w-3.5 h-3.5" />
+        </a>
+        {onExpand && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onExpand();
+            }}
+            title="Lihat Layar Penuh"
+            className="p-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white/90 transition backdrop-blur-xs cursor-pointer shadow-md"
+          >
+            <Maximize2 className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
 
       <video
         ref={videoRef}

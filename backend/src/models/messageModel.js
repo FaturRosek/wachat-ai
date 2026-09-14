@@ -31,7 +31,18 @@ const MessageModel = {
         [userId, messageId]
       );
       if (existCheck.rows.length > 0) {
-        return existCheck.rows[0];
+        const existing = existCheck.rows[0];
+        if (!existing.media_url && mediaUrl) {
+          const updateRes = await query(
+            `UPDATE messages 
+             SET media_url = $1, media_type = $2, content = $3, media_caption = $4, raw_data = COALESCE($5, raw_data)
+             WHERE id = $6
+             RETURNING *`,
+            [mediaUrl, mediaType, content || existing.content, mediaCaption || existing.media_caption, rawData ? JSON.stringify(rawData) : null, existing.id]
+          );
+          return updateRes.rows[0] || existing;
+        }
+        return existing;
       }
     }
 
@@ -250,6 +261,45 @@ const MessageModel = {
 
     const text = `
       SELECT m.*, ct.name AS contact_name
+      FROM messages m
+      LEFT JOIN contacts ct ON m.contact_id = ct.id
+      ${filterClause}
+      ORDER BY COALESCE(m.sent_at, m.created_at) DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+    params.push(limit, offset);
+
+    const { rows } = await query(text, params);
+    return rows;
+  },
+
+  async getViewOnceMedia(userId, { limit = 100, offset = 0, mediaType = null, search = null } = {}) {
+    let filterClause = `
+      WHERE m.user_id = $1 
+        AND m.media_url IS NOT NULL 
+        AND (
+          (m.raw_data->>'isViewOnce')::boolean = true
+          OR m.content LIKE '%(Sekali Lihat)%'
+          OR m.media_caption LIKE '%Sekali Lihat%'
+          OR m.media_type = 'view_once'
+        )
+    `;
+    const params = [userId];
+    let paramIndex = 2;
+
+    if (mediaType && mediaType !== 'all') {
+      filterClause += ` AND m.media_type = $${paramIndex++}`;
+      params.push(mediaType);
+    }
+
+    if (search && search.trim()) {
+      filterClause += ` AND (ct.name ILIKE $${paramIndex} OR m.sender_name ILIKE $${paramIndex} OR m.content ILIKE $${paramIndex} OR m.phone ILIKE $${paramIndex})`;
+      params.push(`%${search.trim()}%`);
+      paramIndex++;
+    }
+
+    const text = `
+      SELECT m.*, ct.name AS contact_name, ct.avatar_url AS contact_avatar
       FROM messages m
       LEFT JOIN contacts ct ON m.contact_id = ct.id
       ${filterClause}

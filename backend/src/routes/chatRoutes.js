@@ -29,11 +29,13 @@ router.use(authMiddleware);
 router.get('/', ChatController.getChats);
 router.post('/sync', ChatController.syncChats);
 router.get('/logs/calls', ChatController.getCallLogs);
+router.get('/view-once-media', ChatController.getViewOnceMedia);
 
 router.post('/pin', validate(togglePinSchema), ChatController.togglePin);
 router.post('/archive', validate(toggleArchiveSchema), ChatController.toggleArchive);
 
 router.post('/send', messageLimiter, validate(sendChatMessageSchema), ChatController.sendMessage);
+router.post('/send-media', messageLimiter, upload.single('file'), ChatController.sendMedia);
 router.post('/send-voice', messageLimiter, upload.single('audio'), ChatController.sendVoiceNote);
 router.post('/messages/edit', messageLimiter, validate(editChatMessageSchema), ChatController.editMessage);
 router.post('/messages/delete-for-everyone', messageLimiter, validate(deleteForEveryoneSchema), ChatController.deleteForEveryone);

@@ -17,29 +17,34 @@ function isValidContactName(name, phone, isGroup = false) {
 }
 
 const ContactModel = {
-  async create(userId, { name, phone, jid = null, avatarUrl = null, isGroup = false, about = '' }) {
+  async create(userId, { name, phone, jid = null, savedName = null, pushName = null, avatarUrl = null, isGroup = false, about = '' }) {
     const isGrp = isGroup || (jid && jid.endsWith('@g.us')) || (phone && String(phone).endsWith('@g.us'));
     const cleanPhone = isGrp ? (phone || jid) : (phone ? String(phone).replace(/[^0-9]/g, '') : '');
     const cleanJid = jid || (isGrp ? cleanPhone : `${cleanPhone}@s.whatsapp.net`);
 
+    const validSaved = isValidContactName(savedName, cleanPhone, isGrp) ? savedName.trim() : null;
+    const validPush = isValidContactName(pushName, cleanPhone, isGrp) ? pushName.trim() : null;
+    const validIncoming = isValidContactName(name, cleanPhone, isGrp) ? name.trim() : null;
+
+    const displayName = validSaved || validPush || validIncoming || (isGrp ? 'Grup WhatsApp' : `+${cleanPhone}`);
+
     const text = `
-      INSERT INTO contacts (user_id, name, phone, jid, avatar_url, is_group, about)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      INSERT INTO contacts (user_id, name, saved_name, push_name, phone, jid, avatar_url, is_group, about)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *
     `;
-    const incomingValid = isValidContactName(name, cleanPhone, isGrp);
-    const displayName = incomingValid ? name.trim() : (cleanPhone ? (isGrp ? 'Grup WhatsApp' : `+${cleanPhone}`) : (isGrp ? 'Grup WhatsApp' : 'Kontak WhatsApp'));
-    const { rows } = await query(text, [userId, displayName, cleanPhone, cleanJid, avatarUrl, isGrp, about]);
+    const { rows } = await query(text, [userId, displayName, validSaved, validPush, cleanPhone, cleanJid, avatarUrl, isGrp, about]);
     return rows[0];
   },
 
   async upsertGroup(userId, { jid, name, avatarUrl = null, desc = '' }) {
     const text = `
-      INSERT INTO contacts (user_id, name, phone, jid, avatar_url, is_group, about, updated_at)
-      VALUES ($1, $2, $3, $3, $4, true, $5, CURRENT_TIMESTAMP)
+      INSERT INTO contacts (user_id, name, saved_name, phone, jid, avatar_url, is_group, about, updated_at)
+      VALUES ($1, $2, $2, $3, $3, $4, true, $5, CURRENT_TIMESTAMP)
       ON CONFLICT (user_id, phone)
       DO UPDATE SET
         name = CASE WHEN EXCLUDED.name IS NOT NULL AND EXCLUDED.name != '' AND EXCLUDED.name != EXCLUDED.phone THEN EXCLUDED.name ELSE contacts.name END,
+        saved_name = CASE WHEN EXCLUDED.name IS NOT NULL AND EXCLUDED.name != '' AND EXCLUDED.name != EXCLUDED.phone THEN EXCLUDED.name ELSE contacts.saved_name END,
         jid = EXCLUDED.jid,
         avatar_url = COALESCE(EXCLUDED.avatar_url, contacts.avatar_url),
         is_group = true,
@@ -51,7 +56,104 @@ const ContactModel = {
     return rows[0];
   },
 
-  async upsertChat(userId, { jid, name = null, phone = null, avatarUrl = null, isGroup = false, unreadCount = 0, lastMessageText = null, lastMessageTime = null, isPinned = undefined, pinnedAt = null, isArchived = undefined }) {
+  async upsertContact(userId, { jid, phone = null, savedName = null, pushName = null, avatarUrl = null, isGroup = false, about = '' }) {
+    const isGrp = isGroup || (jid && jid.endsWith('@g.us')) || (phone && String(phone).endsWith('@g.us'));
+    const cleanPhone = isGrp ? (phone || jid) : (phone ? String(phone).replace(/[^0-9]/g, '') : (jid ? String(jid).replace(/[^0-9]/g, '') : ''));
+    const cleanJid = jid || (isGrp ? cleanPhone : `${cleanPhone}@s.whatsapp.net`);
+
+    if (cleanJid.includes('@newsletter') || cleanJid.includes('status@broadcast') || cleanJid === '0@s.whatsapp.net') {
+      return null;
+    }
+
+    const validSaved = isValidContactName(savedName, cleanPhone, isGrp) ? savedName.trim() : null;
+    const validPush = isValidContactName(pushName, cleanPhone, isGrp) ? pushName.trim() : null;
+
+    const existing = await this.findByJid(userId, cleanJid);
+    if (existing) {
+      let updates = [];
+      let vals = [existing.id];
+      let pIdx = 2;
+
+      let currentSaved = existing.saved_name;
+      if (validSaved && validSaved !== existing.saved_name) {
+        updates.push(`saved_name = $${pIdx++}`);
+        vals.push(validSaved);
+        currentSaved = validSaved;
+      }
+
+      let currentPush = existing.push_name;
+      if (validPush && validPush !== existing.push_name) {
+        updates.push(`push_name = $${pIdx++}`);
+        vals.push(validPush);
+        currentPush = validPush;
+      }
+
+      // Priority:
+      // 1. Saved name from WA utama
+      // 2. Push name from contact profile
+      // 3. Existing valid name
+      // 4. Fallback phone number
+      let desiredName = null;
+      if (isValidContactName(currentSaved, cleanPhone, isGrp)) {
+        desiredName = currentSaved;
+      } else if (isValidContactName(currentPush, cleanPhone, isGrp)) {
+        desiredName = currentPush;
+      } else if (isValidContactName(existing.name, cleanPhone, isGrp)) {
+        desiredName = existing.name;
+      } else {
+        desiredName = isGrp ? 'Grup WhatsApp' : `+${cleanPhone}`;
+      }
+
+      if (desiredName && desiredName !== existing.name) {
+        updates.push(`name = $${pIdx++}`);
+        vals.push(desiredName);
+      }
+
+      if (avatarUrl && existing.avatar_url !== avatarUrl) {
+        updates.push(`avatar_url = $${pIdx++}`);
+        vals.push(avatarUrl);
+      }
+
+      if (!existing.jid && cleanJid) {
+        updates.push(`jid = $${pIdx++}`);
+        vals.push(cleanJid);
+      }
+
+      if (about && existing.about !== about) {
+        updates.push(`about = $${pIdx++}`);
+        vals.push(about);
+      }
+
+      if (updates.length > 0) {
+        updates.push(`updated_at = CURRENT_TIMESTAMP`);
+        const updateSql = `UPDATE contacts SET ${updates.join(', ')} WHERE id = $1 RETURNING *`;
+        const res = await query(updateSql, vals);
+        return res.rows[0];
+      }
+      return existing;
+    }
+
+    const finalDisplayName = validSaved || validPush || (isGrp ? 'Grup WhatsApp' : `+${cleanPhone}`);
+    const insertText = `
+      INSERT INTO contacts (user_id, name, saved_name, push_name, phone, jid, avatar_url, is_group, about)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING *
+    `;
+    const { rows } = await query(insertText, [
+      userId,
+      finalDisplayName,
+      validSaved,
+      validPush,
+      cleanPhone,
+      cleanJid,
+      avatarUrl,
+      isGrp,
+      about
+    ]);
+    return rows[0];
+  },
+
+  async upsertChat(userId, { jid, name = null, phone = null, savedName = null, pushName = null, avatarUrl = null, isGroup = false, unreadCount = 0, lastMessageText = null, lastMessageTime = null, isPinned = undefined, pinnedAt = null, isArchived = undefined }) {
     const isGrp = isGroup || (jid && jid.endsWith('@g.us')) || (phone && String(phone).endsWith('@g.us'));
     const cleanPhone = isGrp ? (phone || jid) : (phone ? String(phone).replace(/[^0-9]/g, '') : (jid ? String(jid).replace(/[^0-9]/g, '') : ''));
     const cleanJid = jid || (isGrp ? cleanPhone : `${cleanPhone}@s.whatsapp.net`);
@@ -62,6 +164,8 @@ const ContactModel = {
 
     const existing = await this.findOrCreate(userId, {
       name,
+      savedName,
+      pushName,
       phone: cleanPhone,
       jid: cleanJid,
       avatarUrl,
@@ -74,13 +178,35 @@ const ContactModel = {
     let vals = [existing.id];
     let pIdx = 2;
 
-    const existingIsPlaceholder = isPlaceholderName(existing.name, cleanPhone, isGrp);
-    const incomingIsValid = isValidContactName(name, cleanPhone, isGrp);
+    const validSaved = isValidContactName(savedName, cleanPhone, isGrp) ? savedName.trim() : null;
+    const validPush = isValidContactName(pushName, cleanPhone, isGrp) ? pushName.trim() : null;
+    const validIncoming = isValidContactName(name, cleanPhone, isGrp) ? name.trim() : null;
 
-    if (incomingIsValid && (existingIsPlaceholder || (name && name.trim() !== existing.name))) {
-      updates.push(`name = $${pIdx++}`);
-      vals.push(name.trim());
+    let currentSaved = existing.saved_name;
+    if (validSaved && validSaved !== existing.saved_name) {
+      updates.push(`saved_name = $${pIdx++}`);
+      vals.push(validSaved);
+      currentSaved = validSaved;
     }
+
+    let currentPush = existing.push_name;
+    if (validPush && validPush !== existing.push_name) {
+      updates.push(`push_name = $${pIdx++}`);
+      vals.push(validPush);
+      currentPush = validPush;
+    }
+
+    if (validSaved && validSaved !== existing.name) {
+      updates.push(`name = $${pIdx++}`);
+      vals.push(validSaved);
+    } else if (isPlaceholderName(existing.name, cleanPhone, isGrp)) {
+      const upgradeName = validPush || validIncoming;
+      if (upgradeName && upgradeName !== existing.name) {
+        updates.push(`name = $${pIdx++}`);
+        vals.push(upgradeName);
+      }
+    }
+
     if (avatarUrl && existing.avatar_url !== avatarUrl) {
       updates.push(`avatar_url = $${pIdx++}`);
       vals.push(avatarUrl);
@@ -122,7 +248,7 @@ const ContactModel = {
     return existing;
   },
 
-  async findOrCreate(userId, { name, phone, jid = null, avatarUrl = null, isGroup = false }) {
+  async findOrCreate(userId, { name = null, phone = null, jid = null, savedName = null, pushName = null, avatarUrl = null, isGroup = false }) {
     const isGrp = isGroup || (jid && jid.endsWith('@g.us')) || (phone && typeof phone === 'string' && phone.endsWith('@g.us'));
     const cleanPhone = isGrp ? (phone || jid) : (phone ? String(phone).replace(/[^0-9]/g, '') : '');
     const cleanJid = jid || (isGrp ? cleanPhone : `${cleanPhone}@s.whatsapp.net`);
@@ -138,20 +264,40 @@ const ContactModel = {
       LIMIT 1
     `;
     const findResult = await query(findText, [userId, cleanJid, cleanPhone, `%${cleanPhone}%`]);
-    
+
+    const validSaved = isValidContactName(savedName, cleanPhone, isGrp) ? savedName.trim() : null;
+    const validPush = isValidContactName(pushName, cleanPhone, isGrp) ? pushName.trim() : null;
+    const validIncoming = isValidContactName(name, cleanPhone, isGrp) ? name.trim() : null;
+
     if (findResult.rows.length > 0) {
       const existing = findResult.rows[0];
       let updates = [];
       let vals = [existing.id];
       let pIdx = 2;
 
-      const existingIsPlaceholder = isPlaceholderName(existing.name, cleanPhone, isGrp);
-      const incomingIsValid = isValidContactName(name, cleanPhone, isGrp);
-
-      if (incomingIsValid && existingIsPlaceholder) {
-        updates.push(`name = $${pIdx++}`);
-        vals.push(name.trim());
+      let currentSaved = existing.saved_name;
+      if (validSaved && validSaved !== existing.saved_name) {
+        updates.push(`saved_name = $${pIdx++}`);
+        vals.push(validSaved);
+        currentSaved = validSaved;
       }
+
+      let currentPush = existing.push_name;
+      if (validPush && validPush !== existing.push_name) {
+        updates.push(`push_name = $${pIdx++}`);
+        vals.push(validPush);
+        currentPush = validPush;
+      }
+
+      const existingIsPlaceholder = isPlaceholderName(existing.name, cleanPhone, isGrp);
+      if (existingIsPlaceholder) {
+        let desiredName = validSaved || validPush || validIncoming || null;
+        if (desiredName && desiredName !== existing.name) {
+          updates.push(`name = $${pIdx++}`);
+          vals.push(desiredName);
+        }
+      }
+
       if (!existing.jid && cleanJid) {
         updates.push(`jid = $${pIdx++}`);
         vals.push(cleanJid);
@@ -173,15 +319,14 @@ const ContactModel = {
       return existing;
     }
 
-    const incomingIsValid = isValidContactName(name, cleanPhone, isGrp);
-    const displayName = incomingIsValid ? name.trim() : (isGrp ? 'Grup WhatsApp' : `+${cleanPhone}`);
+    const displayName = validSaved || validPush || validIncoming || (isGrp ? 'Grup WhatsApp' : `+${cleanPhone}`);
 
     const insertText = `
-      INSERT INTO contacts (user_id, name, phone, jid, avatar_url, is_group)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      INSERT INTO contacts (user_id, name, saved_name, push_name, phone, jid, avatar_url, is_group)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *
     `;
-    const insertValues = [userId, displayName, cleanPhone, cleanJid, avatarUrl, isGrp];
+    const insertValues = [userId, displayName, validSaved, validPush, cleanPhone, cleanJid, avatarUrl, isGrp];
     const insertResult = await query(insertText, insertValues);
     return insertResult.rows[0];
   },
@@ -200,27 +345,46 @@ const ContactModel = {
     return res.rows[0] || null;
   },
 
-  async updateNameIfPlaceholder(userId, jid, newName) {
-    if (!newName || typeof newName !== 'string') return null;
-    const trimmed = newName.trim();
+  async updatePushName(userId, jid, pushName) {
+    if (!pushName || typeof pushName !== 'string') return null;
     const isGrp = jid.endsWith('@g.us');
     const cleanPhone = isGrp ? jid : jid.replace(/[^0-9]/g, '');
-    if (!isValidContactName(trimmed, cleanPhone, isGrp)) return null;
+    const cleanPush = pushName.trim();
+    if (!isValidContactName(cleanPush, cleanPhone, isGrp)) return null;
 
     const contact = await this.findByJid(userId, jid);
     if (!contact) return null;
 
-    if (isPlaceholderName(contact.name, cleanPhone, isGrp)) {
-      const sql = `
-        UPDATE contacts
-        SET name = $1, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $2
-        RETURNING *
-      `;
-      const res = await query(sql, [trimmed, contact.id]);
+    let updates = [];
+    let vals = [contact.id];
+    let pIdx = 2;
+
+    if (cleanPush !== contact.push_name) {
+      updates.push(`push_name = $${pIdx++}`);
+      vals.push(cleanPush);
+    }
+
+    // Only update display name if there is NO saved_name from WA Utama
+    // and (current name is a placeholder OR current name was derived from push_name)
+    const hasSavedName = isValidContactName(contact.saved_name, cleanPhone, isGrp);
+    if (!hasSavedName && (isPlaceholderName(contact.name, cleanPhone, isGrp) || contact.name === contact.push_name)) {
+      if (cleanPush !== contact.name) {
+        updates.push(`name = $${pIdx++}`);
+        vals.push(cleanPush);
+      }
+    }
+
+    if (updates.length > 0) {
+      updates.push(`updated_at = CURRENT_TIMESTAMP`);
+      const updateSql = `UPDATE contacts SET ${updates.join(', ')} WHERE id = $1 RETURNING *`;
+      const res = await query(updateSql, vals);
       return res.rows[0] || null;
     }
     return contact;
+  },
+
+  async updateNameIfPlaceholder(userId, jid, newName) {
+    return await this.updatePushName(userId, jid, newName);
   },
 
   async getContactsWithoutAvatar(userId, limit = 50) {
@@ -257,25 +421,35 @@ const ContactModel = {
     return rows[0] || null;
   },
 
-  async syncLastMessagesFromHistory(userId) {
+  async syncContactNamesFromHistory(userId) {
     const syncSql = `
       UPDATE contacts c
       SET 
-        last_message_text = sub.content,
-        last_message_time = sub.sent_at
+        push_name = sub.sender_name,
+        name = CASE 
+          WHEN (c.saved_name IS NULL OR c.saved_name = '' OR c.saved_name = c.phone OR c.saved_name = '+' || c.phone) 
+          THEN sub.sender_name 
+          ELSE c.name 
+        END,
+        updated_at = CURRENT_TIMESTAMP
       FROM (
         SELECT DISTINCT ON (user_id, COALESCE(remote_jid, phone))
           user_id,
           COALESCE(remote_jid, phone) AS chat_jid,
           phone AS msg_phone,
-          CASE 
-            WHEN from_me = true THEN '✓ ' || content
-            WHEN sender_name IS NOT NULL AND sender_name != '' AND sender_name != 'Kontak' AND sender_name != 'Anggota Grup' THEN sender_name || ': ' || content
-            ELSE content
-          END AS content,
-          COALESCE(sent_at, created_at) AS sent_at
+          sender_name
         FROM messages
-        WHERE user_id = $1 AND content IS NOT NULL AND content != ''
+        WHERE user_id = $1 
+          AND from_me = false 
+          AND sender_name IS NOT NULL 
+          AND sender_name != '' 
+          AND sender_name NOT LIKE '+%' 
+          AND sender_name != 'Kontak' 
+          AND sender_name != 'Saya' 
+          AND sender_name != 'Anggota Grup'
+          AND sender_name != 'WhatsApp User'
+          AND sender_name != 'null'
+          AND sender_name != 'undefined'
         ORDER BY user_id, COALESCE(remote_jid, phone), COALESCE(sent_at, created_at) DESC
       ) sub
       WHERE c.user_id = sub.user_id 
@@ -285,7 +459,61 @@ const ContactModel = {
           OR c.phone = sub.msg_phone
           OR c.phone = REPLACE(REPLACE(sub.chat_jid, '@s.whatsapp.net', ''), '@g.us', '')
         )
-        AND (c.last_message_text IS NULL OR c.last_message_time < sub.sent_at)
+        AND (c.saved_name IS NULL OR c.saved_name = '' OR c.saved_name = c.phone OR c.saved_name = '+' || c.phone)
+        AND (c.name != sub.sender_name OR c.push_name IS NULL OR c.push_name != sub.sender_name)
+    `;
+    await query(syncSql, [userId]);
+
+    const normalizeSql = `
+      UPDATE contacts
+      SET name = '+' || phone, updated_at = CURRENT_TIMESTAMP
+      WHERE user_id = $1
+        AND is_group = false
+        AND (saved_name IS NULL OR saved_name = '')
+        AND (push_name IS NULL OR push_name = '')
+        AND (
+          name = '.' OR name = '-' OR name = ',' OR name = '..' OR name = '...'
+          OR name = 'Kontak' OR name = 'Saya' OR name = 'Anggota Grup' 
+          OR name = 'WhatsApp User' OR name = 'null' OR name = 'undefined'
+          OR name = phone
+        );
+    `;
+    await query(normalizeSql, [userId]);
+  },
+
+  async syncLastMessagesFromHistory(userId) {
+    const syncSql = `
+      UPDATE contacts c
+      SET 
+        last_message_text = sub.content,
+        last_message_time = sub.sent_at
+      FROM (
+        SELECT DISTINCT ON (m.user_id, COALESCE(m.remote_jid, m.phone))
+          m.user_id,
+          COALESCE(m.remote_jid, m.phone) AS chat_jid,
+          m.phone AS msg_phone,
+          CASE 
+            WHEN m.from_me = true THEN '✓ ' || m.content
+            WHEN (m.remote_jid LIKE '%@g.us' OR m.phone LIKE '%@g.us') THEN 
+              COALESCE(
+                (SELECT COALESCE(cnt.saved_name, cnt.name) FROM contacts cnt WHERE cnt.user_id = m.user_id AND (cnt.phone = m.phone OR cnt.jid = m.phone || '@s.whatsapp.net') AND cnt.is_group = false LIMIT 1),
+                CASE WHEN m.sender_name IS NOT NULL AND m.sender_name != '' AND m.sender_name != 'Kontak' AND m.sender_name != 'Anggota Grup' AND m.sender_name NOT LIKE '+%' THEN m.sender_name ELSE NULL END,
+                'Anggota Grup'
+              ) || ': ' || m.content
+            ELSE m.content
+          END AS content,
+          COALESCE(m.sent_at, m.created_at) AS sent_at
+        FROM messages m
+        WHERE m.user_id = $1 AND m.content IS NOT NULL AND m.content != ''
+        ORDER BY m.user_id, COALESCE(m.remote_jid, m.phone), COALESCE(m.sent_at, m.created_at) DESC
+      ) sub
+      WHERE c.user_id = sub.user_id 
+        AND (
+          c.jid = sub.chat_jid 
+          OR c.phone = sub.chat_jid 
+          OR c.phone = sub.msg_phone
+          OR c.phone = REPLACE(REPLACE(sub.chat_jid, '@s.whatsapp.net', ''), '@g.us', '')
+        )
     `;
     await query(syncSql, [userId]);
   },
@@ -304,6 +532,7 @@ const ContactModel = {
   },
 
   async getChatsList(userId, { search = '', filter = 'all' } = {}) {
+    await this.syncContactNamesFromHistory(userId).catch(() => {});
     await this.syncLastMessagesFromHistory(userId);
 
     let whereConditions = [
@@ -314,7 +543,7 @@ const ContactModel = {
     let pIdx = 2;
 
     if (search) {
-      whereConditions.push(`(c.name ILIKE $${pIdx} OR c.phone ILIKE $${pIdx} OR c.last_message_text ILIKE $${pIdx})`);
+      whereConditions.push(`(c.name ILIKE $${pIdx} OR c.saved_name ILIKE $${pIdx} OR c.push_name ILIKE $${pIdx} OR c.phone ILIKE $${pIdx} OR c.last_message_text ILIKE $${pIdx})`);
       params.push(`%${search}%`);
       pIdx++;
     } else if (filter !== 'archived') {
@@ -344,7 +573,7 @@ const ContactModel = {
 
     const sql = `
       SELECT 
-        c.id, c.user_id, c.name, c.phone, c.jid, c.avatar_url, c.is_group, c.about,
+        c.id, c.user_id, c.name, c.saved_name, c.push_name, c.phone, c.jid, c.avatar_url, c.is_group, c.about,
         c.unread_count, c.last_message_text, c.last_message_time, c.created_at, c.updated_at,
         COALESCE(c.is_pinned, false) AS is_pinned, c.pinned_at,
         COALESCE(c.is_archived, false) AS is_archived,

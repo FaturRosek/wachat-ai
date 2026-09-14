@@ -2402,6 +2402,7 @@ class WhatsappService {
       mediaUrl,
       mediaCaption: caption && caption.trim() ? caption.trim() : (isVo ? (mediaType === "video" ? "👁️ Video Sekali Lihat" : "👁️ Foto Sekali Lihat") : (mediaType === "document" ? fileName : null)),
       quotedMessage: quotedMessageData,
+      rawData: isVo ? { isViewOnce: true } : null,
       direction: "OUTGOING",
       status: "SENT",
       fromMe: true,

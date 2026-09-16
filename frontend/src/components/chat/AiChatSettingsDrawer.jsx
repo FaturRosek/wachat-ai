@@ -52,6 +52,7 @@ export default function AiChatSettingsDrawer({
   onUpdateAiSetting,
 }) {
   const [autoReplyEnabled, setAutoReplyEnabled] = useState(false);
+  const [disableAfterOneReply, setDisableAfterOneReply] = useState(false);
   const [replyMode, setReplyMode] = useState('ai');
   const [staticReplyText, setStaticReplyText] = useState('');
   const [customPrompt, setCustomPrompt] = useState('');
@@ -65,6 +66,7 @@ export default function AiChatSettingsDrawer({
   useEffect(() => {
     if (aiSetting) {
       setAutoReplyEnabled(!!aiSetting.auto_reply_enabled);
+      setDisableAfterOneReply(!!aiSetting.disable_after_one_reply);
       setReplyMode(aiSetting.reply_mode || 'ai');
       setStaticReplyText(aiSetting.static_reply_text || '');
       setCustomPrompt(aiSetting.custom_prompt || '');
@@ -72,6 +74,7 @@ export default function AiChatSettingsDrawer({
       setNotes(aiSetting.notes || '');
     } else {
       setAutoReplyEnabled(false);
+      setDisableAfterOneReply(false);
       setReplyMode('ai');
       setStaticReplyText('');
       setCustomPrompt('');
@@ -89,6 +92,7 @@ export default function AiChatSettingsDrawer({
     try {
       const res = await apiClient.put(`/chats/${encodeURIComponent(activeContact.jid)}/ai-setting`, {
         autoReplyEnabled,
+        disableAfterOneReply,
         replyMode,
         staticReplyText,
         customPrompt,
@@ -202,13 +206,33 @@ export default function AiChatSettingsDrawer({
           </div>
 
           {autoReplyEnabled && (
-            <div className="mt-3 pt-3 border-t border-blue-200/60 dark:border-blue-900/50 flex items-center gap-1.5 text-[11px] text-blue-800 dark:text-blue-300 font-medium">
-              <Sparkles className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-              <span>
-                {replyMode === 'static'
-                  ? 'Pesan tetap aktif membalas setiap chat masuk 24/7.'
-                  : 'AI aktif menjawab pesan masuk kontak ini 24/7.'}
-              </span>
+            <div className="mt-3 pt-3 border-t border-blue-200/60 dark:border-blue-900/50 space-y-2.5">
+              <div className="flex items-center gap-1.5 text-[11px] text-blue-800 dark:text-blue-300 font-medium">
+                <Sparkles className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+                <span>
+                  {replyMode === 'static'
+                    ? 'Pesan tetap membalas pesan masuk kontak ini.'
+                    : 'AI aktif menjawab pesan masuk kontak ini.'}
+                </span>
+              </div>
+
+              <div className="p-2.5 bg-white/90 dark:bg-[#111b21]/80 rounded-xl border border-blue-200/80 dark:border-blue-900/50 flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <label htmlFor="disableAfterOneReplyToggle" className="block text-xs font-bold text-slate-800 dark:text-white cursor-pointer">
+                    Auto-Nonaktif Setelah 1x Balas
+                  </label>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                    Setelah bot membalas pesan pertama dari kontak ini, status AI akan otomatis mati agar Anda bisa melanjutkan obrolan manual tanpa terganggu bot.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  id="disableAfterOneReplyToggle"
+                  checked={disableAfterOneReply}
+                  onChange={(e) => setDisableAfterOneReply(e.target.checked)}
+                  className="w-4 h-4 mt-1 accent-blue-600 rounded border-slate-300 dark:border-slate-600 focus:ring-blue-500 cursor-pointer"
+                />
+              </div>
             </div>
           )}
         </div>

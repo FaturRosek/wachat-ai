@@ -104,10 +104,11 @@ const aiContextSchema = z.object({
 
 const aiSettingUpdateSchema = z.object({
   autoReplyEnabled: z.boolean().optional().default(false),
+  disableAfterOneReply: z.boolean().optional().default(false),
   replyMode: z.enum(['ai', 'static']).optional().default('ai'),
   staticReplyText: z.string().trim().max(2000).optional().nullable(),
   customPrompt: z.string().trim().max(3000).optional().default(''),
-  tone: z.enum(['friendly', 'professional', 'casual', 'humorous', 'concise', 'formal']).optional().default('friendly'),
+  tone: aiToneEnum.optional().default('friendly'),
   notes: z.string().trim().max(1000).optional().default('')
 });
 

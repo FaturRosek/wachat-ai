@@ -48,13 +48,14 @@ FORMAT OUTPUT WAJIB JSON MURNI:
     const apiKey = process.env.GEMINI_API_KEY || this.geminiApiKey;
     if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
 
-    const primaryModel = process.env.AI_MODEL || this.model || 'gemini-3.8-flash';
+    const primaryModel = process.env.AI_MODEL || this.model || 'gemini-3.6-flash';
     const candidateModels = [
       primaryModel,
-      'gemini-3.8-flash',
-      'gemini-3.7-flash',
-      'gemini-3.5-flash',
-      'gemini-flash-latest'
+      'gemini-3.6-flash',
+      'gemini-3.1-flash-lite',
+      'gemini-3.5-flash-lite',
+      'gemini-flash-lite-latest',
+      'gemini-3.8-flash'
     ];
     const uniqueModels = [...new Set(candidateModels)];
 
@@ -326,30 +327,84 @@ Format JSON murni:
   }
 
   _fallbackComposeTemplate(input, tone = 'friendly', recipientName = '') {
-    const nameStr = recipientName ? ` ${recipientName}` : '';
-    const clean = input.trim();
+    const list = this._fallbackComposeVariations(input, 1, tone, recipientName);
+    return list[0] || input;
+  }
 
-    switch (tone) {
-      case 'formal':
-        return `Yth. Bapak/Ibu${nameStr},\n\nSehubungan dengan hal tersebut, kami ingin menginformasikan bahwa:\n${clean}\n\nDemikian kami sampaikan, terima kasih atas perhatian dan kerja samanya. 🙏`;
-      case 'persuasive':
-        return `Halo Kak${nameStr}! ✨\n\nKabar baik untuk Anda! ${clean}\n\nYuk jangan sampai terlewatkan. Hubungi kami untuk informasi lebih lanjut ya! 🚀`;
-      case 'apology':
-        return `Halo Kak${nameStr}, kami memohon maaf yang sebesar-besarnya atas ketidaknyamanan terkait:\n${clean}\n\nKami akan segera menindaklanjuti hal ini sebaik mungkin. Terima kasih atas pengertian dan kesabarannya. 🙏`;
-      case 'reminder':
-        return `Halo Kak${nameStr} 👋\n\nSekadar mengingatkan kembali terkait:\n${clean}\n\nMohon konfirmasi jika ada yang perlu dibantu. Terima kasih! ⏰`;
-      case 'short':
-        return `Halo Kak${nameStr}, ${clean}. Terima kasih.`;
-      case 'romantic':
-      case 'romantis':
-        return `Hai sayang${nameStr} ❤️\n\n${clean}\n\nSemoga harimu selalu indah dan bahagia ya! Love you always. 💕✨`;
-      case 'casual':
-      case 'santai':
-        return `Yo${nameStr}! 👋 Mau infoin nih:\n${clean}\n\nGas santuy aja ya, kabarin kalau ada apa-apa! 😎✨`;
-      case 'friendly':
-      default:
-        return `Halo Kak${nameStr}! 😊\n\n${clean}\n\nTerima kasih banyak, semoga harinya menyenangkan! 🙏✨`;
+  _fallbackComposeVariations(input, count = 1, tone = 'friendly', recipientName = '') {
+    const nameStr = recipientName ? ` ${recipientName}` : '';
+    const clean = (input || '').trim() || 'informasi terbaru';
+    const isVeryShort = clean.length <= 6;
+    const topic = isVeryShort && /^(tes|test|halo|hai|p)/i.test(clean)
+      ? 'pengecekan koneksi sistem dan update informasi penting hari ini'
+      : clean;
+
+    const templates = {
+      casual: [
+        `Yo${nameStr}! 👋 Mau infoin nih:\n\n${topic}\n\nGas santuy aja ya, kabarin kalau ada apa-apa! 😎✨`,
+        `Halo${nameStr}! Semoga harimu asik yaa. Btw mau ngasih tau perihal:\n\n*${topic}*\n\nNanti kalau sempat dikabarin lagi ya, santai aja! 🙌🔥`,
+        `Heii${nameStr} ✨ Mau sharing update singkat nih:\n\n👉 ${topic}\n\nKira-kira gimana menurutmu? Kabarin yaa kalau udah senggang! 🤙💬`,
+        `Haloo${nameStr}! Gak mau ganggu lama-lama, cuma mau ingetin bentar:\n\n📌 *${topic}*\n\nKapan-kapan kita ngobrol lagi ya! Have a great day! 🚀😎`,
+        `Pagi/Siang${nameStr} 👋 Mau nyapa sekalian infoin ini:\n\n${topic}\n\nNanti kalau butuh apa-apa kabarin aja ya, siap bantu! ✌️`
+      ],
+      persuasive: [
+        `Halo Kak${nameStr}! ✨ Kabar baik untuk Anda!\n\n*${topic}*\n\nYuk amankan kesempatan ini sekarang juga sebelum terlewatkan. Balas pesan ini untuk info lengkapnya ya! 🚀🎯`,
+        `Spesial untuk Kak${nameStr}! 🌟 Jangan sampai ketinggalan penawaran terbaik kami:\n\n👉 *${topic}*\n\nKuota terbatas! Langsung hubungi kami sekarang ya! 💫`,
+        `Hai Kak${nameStr} 👋 Mau dapet benefit maksimal? Simak info menarik ini:\n\n📌 *${topic}*\n\nTertarik? Yuk ngobrol sekarang, kami siap bantu prosesnya! ✨`,
+        `Kesempatan emas buat Kak${nameStr}! 🎉\n\nKami hadirkan: *${topic}*\n\nJangan ragu untuk tanya-tanya dulu ya, klik balas pesan ini sekarang! 🔥`,
+        `Halo Kak${nameStr}! Rekomendasi terbaik khusus untuk Anda:\n\n✨ *${topic}*\n\nCek sekarang dan rasakan kemudahannya. Ditunggu konfirmasinya ya! 📲`
+      ],
+      formal: [
+        `Yth. Bapak/Ibu${nameStr},\n\nSehubungan dengan hal tersebut, kami bermaksud menyampaikan informasi penting terkait:\n*${topic}*\n\nDemikian kami sampaikan, terima kasih atas perhatian dan kerja samanya. 🙏`,
+        `Selamat pagi/siang Bapak/Ibu${nameStr}.\n\nMelalui pesan ini, kami ingin mengonfirmasikan perihal:\n${topic}\n\nApabila ada hal yang perlu dikoordinasikan lebih lanjut, mohon dapat mengabari kami. Hormat kami. 👔`,
+        `Kepada Yth. Bapak/Ibu${nameStr},\n\nKami menginformasikan perkembangan terbaru mengenai:\n👉 *${topic}*\n\nAtas kerja sama yang baik selama ini, kami ucapkan terima kasih. 🤝`,
+        `Yth. Bapak/Ibu${nameStr},\n\nMenindaklanjuti koordinasi sebelumnya, berikut adalah informasi resmi terkait:\n*${topic}*\n\nMohon konfirmasi jika pesan ini telah diterima dengan baik. Terima kasih. 🙏`,
+        `Selamat pagi/siang Bapak/Ibu${nameStr},\n\nSemoga dalam keadaan sehat. Kami hendak menyampaikan pemberitahuan perihal:\n\n${topic}\n\nTerima kasih atas perhatian Bapak/Ibu. 💼`
+      ],
+      friendly: [
+        `Halo Kak${nameStr}! 😊\n\nSemoga harinya menyenangkan ya! Mau menyampaikan info ini:\n\n*${topic}*\n\nKalau ada yang mau ditanyakan, santai aja kabarin yaa! 🙏✨`,
+        `Hai Kak${nameStr} 👋 Senang bisa menyapa Anda kembali!\n\nAda sedikit update nih perihal:\n👉 *${topic}*\n\nSemoga harimu penuh berkah ya, have a wonderful day! 🌸`,
+        `Halo Kak${nameStr}! ✨ Cuma mau berbagi kabar baik seputar:\n\n*${topic}*\n\nTerima kasih banyak atas waktunya ya, sehat selalu untuk Kakak dan keluarga! 🥰`,
+        `Hai Kak${nameStr} 😊 Semoga aktivitasnya lancar hari ini yaa.\n\nSekadar info penting untuk Kakak:\n📌 *${topic}*\n\nKabari kami ya kalau ada yang bisa kami bantu! 💛`,
+        `Halo sahabat${nameStr}! 🌟 Mau infoin hal penting ini:\n\n${topic}\n\nSemoga harimu selalu menyenangkan ya! Sampai jumpa lagi! 🌻`
+      ],
+      romantic: [
+        `Hai sayang${nameStr} ❤️\n\nCuma mau bilang:\n\n*${topic}*\n\nSemoga harimu selalu indah dan bahagia ya! Love you always. 💕✨`,
+        `Sayang${nameStr}, jangan lupa yaa:\n\n🌹 *${topic}*\n\nJaga kesehatan selalu, kangen banget sama kamu! 🥰❤️`,
+        `Heii cintaku${nameStr} 💕 Mau ingetin ini sambil kirim peluk hangat:\n\n*${topic}*\n\nSemangat terus ya harinya, aku selalu dukung kamu! 💖`,
+        `Hai manis${nameStr} ✨ Hari ini aku kepikiran kamu terus, sekalian mau infoin:\n\n💌 ${topic}\n\nSenyum terus ya sayang, love you to the moon and back! 🌙❤️`,
+        `Sayangku${nameStr} 🌹 Terima kasih udah selalu ada. Ini buat kamu:\n\n*${topic}*\n\nI love you so much! ❤️✨`
+      ],
+      reminder: [
+        `Halo Kak${nameStr} 👋\n\nSekadar mengingatkan kembali terkait agenda/hal berikut:\n\n⏰ *${topic}*\n\nMohon konfirmasi jika ada yang perlu dibantu. Terima kasih! 🙏`,
+        `Pengingat ramah untuk Kak${nameStr} 📌\n\nJangan lupa ya terkait:\n👉 *${topic}*\n\nSilakan kabari kami apabila sudah selesai atau ada kendala. Salam hangat! ⏰`,
+        `Halo Kak${nameStr} ⏰\n\nMohon perhatiannya sejenak untuk informasi berikut:\n\n*${topic}*\n\nTerima kasih banyak atas perhatian dan kerja samanya! ✨`,
+        `Hai Kak${nameStr}! Reminder otomatis nih mengenai:\n\n🔔 *${topic}*\n\nMohon dicek kembali ya kak, terima kasih atas waktunya! 👍`,
+        `Halo Kak${nameStr} 👋 Menghindari keterlambatan, kami ingatkan kembali:\n\n📌 *${topic}*\n\nHubungi kami jika ada pertanyaan ya! ⏰`
+      ],
+      apology: [
+        `Halo Kak${nameStr}, kami memohon maaf yang sebesar-besarnya atas ketidaknyamanan terkait:\n\n*${topic}*\n\nKami akan segera menindaklanjuti hal ini sebaik mungkin. Terima kasih atas pengertian dan kesabarannya. 🙏`,
+        `Yth. Kak${nameStr}, dengan tulus kami menyampaikan permohonan maaf atas kendala:\n\n${topic}\n\nKomitmen kami adalah memberikan yang terbaik, dan kami sedang memperbaiki hal ini. Mohon maaf sekali lagi. 🙇‍♂️`,
+        `Halo Kak${nameStr}, mohon maaf yang sedalam-dalamnya jika ada kekeliruan perihal:\n\n*${topic}*\n\nKami sangat menghargai masukan Kakak dan siap membantu solusi secepatnya. Terima kasih atas kebaikannya. 🙏`,
+        `Hai Kak${nameStr}, kami menyadari ada ketidaksesuaian terkait:\n\n${topic}\n\nUntuk itu kami mohon maaf sebesar-besarnya dan berjanji akan menyelesaikannya secepat mungkin. Terima kasih banyak. 🤝`,
+        `Kepada Kak${nameStr}, mohon maaf atas pengalaman yang kurang berkenan seputar:\n\n*${topic}*\n\nKami pastikan situasi ini segera teratasi. Terima kasih atas pengertian Kakak. 🙏`
+      ],
+      short: [
+        `Halo Kak${nameStr}, *${topic}*. Terima kasih.`,
+        `Hai Kak${nameStr} 👋 Info singkat: *${topic}*. Ditunggu responsnya.`,
+        `Halo${nameStr}, perihal *${topic}*. Mohon konfirmasi ya.`,
+        `Pagi/Siang Kak${nameStr}, update: *${topic}*. Terima kasih.`,
+        `Halo${nameStr}, mohon cek: *${topic}*. Thanks!`
+      ]
+    };
+
+    const toneKey = (tone === 'santai' ? 'casual' : (tone === 'romantis' ? 'romantic' : tone)) || 'friendly';
+    const list = templates[toneKey] || templates.friendly;
+    const results = [];
+    for (let i = 0; i < count; i++) {
+      results.push(list[i % list.length]);
     }
+    return results;
   }
 
   async generateAutoReply(customPrompt, chatHistory = [], incomingMessage = '', contactName = 'Customer') {
@@ -415,22 +470,26 @@ Format JSON murni:
     const toneInstruction = toneGuides[tone] || toneGuides.friendly;
     const recipientContext = recipientName ? `Penerima bernama: "${recipientName}". Gunakan sapaan yang sesuai jika cocok.` : '';
 
-    const systemInstruction = `Anda adalah Copywriter & WhatsApp Specialist profesional kelas atas.
-Tugas Anda adalah membuat pesan WhatsApp yang SANGAT MENARIK, persuasif, mengalir natural, tidak kaku, dan terstruktur dengan rapi.
+    const systemInstruction = `Anda adalah Master Copywriter & Spesialis WhatsApp Engagement nomor satu.
+Tugas Anda adalah membedah ide/draf pesan pengguna dan mentransformasikannya menjadi pesan WhatsApp yang SANGAT MEMIKAT, hidup, bernyawa, terstruktur rapi, dan berdaya pikat tinggi.
 
-PANDUAN COPYWRITING WHATSAPP:
-1. Gunakan bahasa Indonesia yang luwes, hidup, dan memikat pembaca.
+PANDUAN COPYWRITING UTAMA:
+1. Pahami esensi atau maksud dari draf pesan pengguna.
+   - Jika pengguna mengetik teks singkat/ringkas (contoh: "tes", "halo", "promo", "diskon 50%", "jangan lupa bayar", "katalog"), JANGAN HANYA MENGULANG kata tersebut! Elaborasikan ide tersebut secara cerdas menjadi pesan WhatsApp yang utuh, profesional, dan siap dikirim dengan konteks yang kaya dan natural.
 2. ${toneInstruction}
-3. Manfaatkan format WhatsApp seperti *tebal* pada kata kunci/penawaran penting, pemenggalan paragraf yang rapi dan nyaman dibaca, serta emoji yang pas dan estetik agar chat terlihat hidup dan profesional.
-4. Buat pembuka yang menarik perhatian (hook), isi yang jelas, dan penutup dengan ajakan tindakan (Call-to-Action) yang ramah.
-5. Jika diminta ${targetCount} variasi: Buat ${targetCount} variasi yang BENAR-BENAR BERBEDA hook pembuka, sudut pandang, dan susunan kalimatnya (jangan hanya mengganti satu kata pembuka saja).
-6. ${recipientContext}
-7. JANGAN berikan pengantar atau komentar apapun seperti "Tentu, ini variasinya:". Berikan langsung isi pesan di dalam array JSON.`;
+3. Ciptakan ${targetCount} variasi yang BENAR-BENAR BERBEDA satu sama lain dari sudut pandang (angle), kalimat pembuka (hook), susunan isi, dan penutup (Call to Action):
+   - Variasi #1 (Direct & Action-Oriented): Langsung to the point, hook lugas, pesan utama jelas, diakhiri ajakan aksi yang tegas namun sopan.
+   - Variasi #2 (Warm & Storytelling/Relational): Gaya obrolan hangat, pembuka akrab yang mencairkan suasana, alur mengalir ramah, diakhiri ajakan ngobrol.
+   - Variasi #3 (Value & Benefit-Driven): Menonjolkan keuntungan/nilai tambah penting, gunakan formatting WhatsApp yang rapi (*bold*, penataan paragraf lega, list poin dengan emoji estetik ✨/👉/📌).
+   - Variasi selanjutnya (Variasi #4+): Eksplorasi kombinasi kreatif lain dengan diksi dan fokus pesan yang segar.
+4. Gunakan formatting khas WhatsApp (*tebal* pada kata kunci penting, spasi antar paragraf yang lega agar nyaman dibaca di layar HP, dan emoji secukupnya yang pas).
+5. ${recipientContext}
+6. DILARANG KERAS memberikan pengantar/penutup meta seperti "Tentu, ini variasinya:". Keluarkan HANYA format JSON murni.`;
 
-    const prompt = `Pesan dasar dari pengguna:
+    const prompt = `Ide / draf pesan pengguna:
 "${cleanBase}"
 
-Buatkan tepat ${targetCount} variasi pesan WhatsApp yang berkualitas tinggi, memikat, dan siap dikirim berdasarkan pesan dasar di atas.
+Instruksi: Susunkan ${targetCount} variasi pesan WhatsApp lengkap dengan kombinasi yang kaya, berbeda sudut pandang, dan format rapi siap kirim.
 Format JSON murni:
 {
   "variations": [
@@ -464,14 +523,10 @@ Format JSON murni:
         }
       }
     } catch (e) {
-      console.warn('[AI Service] AI variation failed:', e.message);
+      console.warn('[AI Service] AI variation failed, using multi-variant fallback:', e.message);
     }
 
-    const localVariations = [];
-    for (let i = 0; i < targetCount; i++) {
-      localVariations.push(this._fallbackComposeTemplate(cleanBase, tone, recipientName));
-    }
-    return localVariations;
+    return this._fallbackComposeVariations(cleanBase, targetCount, tone, recipientName);
   }
 
   async parseAndGenerate(promptText) {

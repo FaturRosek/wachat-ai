@@ -5,6 +5,7 @@ const CallLogModel = require('../models/callLogModel');
 const WhatsappSessionModel = require('../models/whatsappSessionModel');
 const WhatsappService = require('../services/whatsappService');
 const aiService = require('../services/aiService');
+const { sanitizeJid } = require('../utils/phoneValidator');
 
 const ChatController = {
   async getChats(req, res, next) {
@@ -23,7 +24,8 @@ const ChatController = {
 
   async getChatMessages(req, res, next) {
     try {
-      const { jid } = req.params;
+      const { jid: rawJid } = req.params;
+      const jid = sanitizeJid(rawJid) || rawJid;
       const { limit = 100, offset = 0 } = req.query;
 
       await ContactModel.resetUnread(req.user.id, jid);
@@ -216,7 +218,8 @@ const ChatController = {
 
   async togglePin(req, res, next) {
     try {
-      const { jid, pinned } = req.body;
+      const { jid: rawJid, pinned } = req.body;
+      const jid = sanitizeJid(rawJid) || rawJid;
       await WhatsappService.modifyChatPin(req.user.id, { jid, pinned });
       const contact = await ContactModel.togglePin(req.user.id, jid, pinned);
       
@@ -235,7 +238,8 @@ const ChatController = {
 
   async toggleArchive(req, res, next) {
     try {
-      const { jid, archived } = req.body;
+      const { jid: rawJid, archived } = req.body;
+      const jid = sanitizeJid(rawJid) || rawJid;
       await WhatsappService.modifyChatArchive(req.user.id, { jid, archived });
       const contact = await ContactModel.toggleArchive(req.user.id, jid, archived);
       
@@ -360,13 +364,15 @@ const ChatController = {
 
   async getAiSetting(req, res, next) {
     try {
-      const { jid } = req.params;
+      const { jid: rawJid } = req.params;
+      const jid = sanitizeJid(rawJid) || rawJid;
       const setting = await ChatAiSettingModel.getByJid(req.user.id, jid);
       res.status(200).json({
         success: true,
         data: setting || {
           jid,
           auto_reply_enabled: false,
+          disable_after_one_reply: false,
           reply_mode: 'ai',
           static_reply_text: '',
           custom_prompt: '',
@@ -381,17 +387,23 @@ const ChatController = {
 
   async updateAiSetting(req, res, next) {
     try {
-      const { jid } = req.params;
-      const { autoReplyEnabled, replyMode = 'ai', staticReplyText = null, customPrompt = '', tone = 'friendly', notes = '' } = req.body;
+      const { jid: rawJid } = req.params;
+      const jid = sanitizeJid(rawJid) || rawJid;
+      const { autoReplyEnabled, disableAfterOneReply = false, replyMode = 'ai', staticReplyText = null, customPrompt = '', tone = 'friendly', notes = '' } = req.body;
 
       const updated = await ChatAiSettingModel.upsert(req.user.id, jid, {
         autoReplyEnabled: !!autoReplyEnabled,
+        disableAfterOneReply: !!disableAfterOneReply,
         replyMode,
         staticReplyText: staticReplyText ? staticReplyText.trim() : null,
         customPrompt,
         tone,
         notes
       });
+
+      const socketService = require('../services/socketService');
+      socketService.emitToUser(req.user.id, 'ai_setting_updated', updated);
+      socketService.emitToUser(req.user.id, 'chats_updated', {});
 
       res.status(200).json({
         success: true,
@@ -405,7 +417,8 @@ const ChatController = {
 
   async toggleAutoReply(req, res, next) {
     try {
-      const { jid } = req.params;
+      const { jid: rawJid } = req.params;
+      const jid = sanitizeJid(rawJid) || rawJid;
       const { enabled } = req.body;
 
       const updated = await ChatAiSettingModel.toggleAutoReply(req.user.id, jid, !!enabled);

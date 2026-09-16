@@ -518,6 +518,42 @@ const ContactModel = {
     await query(syncSql, [userId]);
   },
 
+  async syncContactsFromMessages(userId) {
+    const insertFromMsgsSql = `
+      INSERT INTO contacts (user_id, name, phone, jid, is_group, created_at, updated_at)
+      SELECT DISTINCT ON (m.user_id, clean_sub.clean_phone)
+        m.user_id,
+        COALESCE(
+          NULLIF(m.sender_name, ''),
+          '+' || clean_sub.clean_phone
+        ) AS name,
+        clean_sub.clean_phone AS phone,
+        clean_sub.clean_phone || '@s.whatsapp.net' AS jid,
+        false AS is_group,
+        CURRENT_TIMESTAMP,
+        CURRENT_TIMESTAMP
+      FROM messages m
+      CROSS JOIN LATERAL (
+        SELECT 
+          REGEXP_REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(m.remote_jid, m.phone), '@s.whatsapp.net', ''), '@lid', ''), '@g.us', ''), '[^0-9]', '', 'g') AS clean_phone
+      ) clean_sub
+      WHERE m.user_id = $1
+        AND COALESCE(m.remote_jid, '') NOT LIKE '%@g.us'
+        AND COALESCE(m.phone, '') NOT LIKE '%@g.us'
+        AND COALESCE(m.remote_jid, '') NOT LIKE '%@newsletter'
+        AND COALESCE(m.remote_jid, '') NOT LIKE '%status%'
+        AND clean_sub.clean_phone != ''
+        AND LENGTH(clean_sub.clean_phone) >= 8
+        AND LENGTH(clean_sub.clean_phone) <= 16
+      ON CONFLICT (user_id, phone) DO UPDATE SET
+        jid = COALESCE(contacts.jid, EXCLUDED.jid),
+        updated_at = CURRENT_TIMESTAMP
+    `;
+    await query(insertFromMsgsSql, [userId]).catch(() => {});
+    await this.syncContactNamesFromHistory(userId).catch(() => {});
+    await this.syncLastMessagesFromHistory(userId).catch(() => {});
+  },
+
   async resetUnread(userId, jid) {
     const isGrp = jid.endsWith('@g.us');
     const cleanPhone = isGrp ? jid : jid.replace(/[^0-9]/g, '');
@@ -701,6 +737,8 @@ const ContactModel = {
   },
 
   async getAllByUser(userId, { search = '', type = 'personal', limit = 100, offset = 0 } = {}) {
+    await this.syncContactsFromMessages(userId).catch(() => {});
+
     let filterClause = "WHERE user_id = $1 AND jid NOT LIKE '%@lid' AND phone NOT LIKE '%@lid'";
     let params = [userId];
     let paramIndex = 2;

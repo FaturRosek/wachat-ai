@@ -56,14 +56,32 @@ export default function MessageComposerPage({ waStatus }) {
   const chatCanvasRef = useRef(null);
   const isConnected = waStatus?.status === 'CONNECTED';
 
+  const [syncingContacts, setSyncingContacts] = useState(false);
+  const [contactSearch, setContactSearch] = useState('');
+
   const fetchInitialData = async () => {
     try {
-      const contactsRes = await apiClient.get('/contacts?type=personal&limit=200');
+      const contactsRes = await apiClient.get('/contacts?type=personal&limit=500');
       const raw = contactsRes.data.data?.contacts || contactsRes.data.data || [];
       const personalOnly = raw.filter((c) => !c.is_group && !String(c.phone || '').includes('@g.us') && !String(c.jid || '').includes('@g.us'));
       setContacts(personalOnly);
     } catch (err) {
       console.error('Error fetching composer data:', err);
+    }
+  };
+
+  const handleSyncContacts = async () => {
+    setSyncingContacts(true);
+    try {
+      const res = await apiClient.post('/contacts/sync?type=personal&limit=500');
+      const raw = res.data.data?.contacts || [];
+      const personalOnly = raw.filter((c) => !c.is_group && !String(c.phone || '').includes('@g.us') && !String(c.jid || '').includes('@g.us'));
+      setContacts(personalOnly);
+    } catch (err) {
+      console.warn('Sync endpoint warning, falling back to fetchInitialData:', err.message);
+      await fetchInitialData();
+    } finally {
+      setSyncingContacts(false);
     }
   };
 
@@ -87,6 +105,7 @@ export default function MessageComposerPage({ waStatus }) {
   useEffect(() => {
     if (isConnected) {
       fetchGroups();
+      fetchInitialData();
     }
   }, [isConnected]);
 
@@ -315,7 +334,7 @@ export default function MessageComposerPage({ waStatus }) {
               }`}
             >
               <User className="w-4 h-4" />
-              <span>Kontak Personal</span>
+              <span>Kontak Personal {contacts.length > 0 && `(${contacts.length})`}</span>
             </button>
             <button
               type="button"
@@ -340,9 +359,33 @@ export default function MessageComposerPage({ waStatus }) {
           {recipientType === 'personal' ? (
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider mb-1">
-                  Pilih Dari Kontak Tersimpan
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
+                    Pilih Dari Kontak Tersimpan {contacts.length > 0 && `(${contacts.length})`}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleSyncContacts}
+                    disabled={syncingContacts}
+                    className="text-[11px] text-blue-600 dark:text-blue-400 hover:text-blue-700 font-semibold flex items-center space-x-1"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${syncingContacts ? 'animate-spin' : ''}`} />
+                    <span>{syncingContacts ? 'Sinkronisasi...' : 'Sinkronkan Kontak'}</span>
+                  </button>
+                </div>
+
+                {contacts.length > 6 && (
+                  <div className="mb-2">
+                    <input
+                      type="text"
+                      placeholder="🔍 Cari nama atau nomor kontak..."
+                      value={contactSearch}
+                      onChange={(e) => setContactSearch(e.target.value)}
+                      className="w-full bg-slate-50 dark:bg-[#202c33] border border-slate-200 dark:border-[#2a3942] rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                )}
+
                 <select
                   value={selectedContact}
                   onChange={(e) => handleContactSelect(e.target.value)}
@@ -351,6 +394,13 @@ export default function MessageComposerPage({ waStatus }) {
                   <option value="">-- Ketik manual di bawah --</option>
                   {contacts
                     .filter((c) => !c.is_group && !String(c.phone || '').includes('@g.us') && !String(c.jid || '').includes('@g.us'))
+                    .filter((c) => {
+                      if (!contactSearch.trim()) return true;
+                      const q = contactSearch.toLowerCase();
+                      const nameMatch = (c.name || '').toLowerCase().includes(q);
+                      const phoneMatch = (c.phone || c.jid || '').toLowerCase().includes(q);
+                      return nameMatch || phoneMatch;
+                    })
                     .map((c) => {
                       const cleanNum = (c.phone || c.jid || '').replace(/[^0-9]/g, '');
                       return (

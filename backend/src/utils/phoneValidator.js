@@ -9,13 +9,16 @@ const formatPhoneNumber = (phone) => {
 
   const trimmed = phone.trim();
 
-  if (trimmed.endsWith('@g.us')) {
-    return {
-      isValid: true,
-      formattedPhone: trimmed,
-      isGroup: true,
-      error: null
-    };
+  if (trimmed.includes('@g.us')) {
+    const groupId = trimmed.split('@g.us')[0].replace(/[^0-9-]/g, '');
+    if (groupId) {
+      return {
+        isValid: true,
+        formattedPhone: `${groupId}@g.us`,
+        isGroup: true,
+        error: null
+      };
+    }
   }
 
   let cleaned = trimmed.replace(/[^0-9+]/g, '');
@@ -46,6 +49,46 @@ const formatPhoneNumber = (phone) => {
   };
 };
 
-module.exports = {
-  formatPhoneNumber
+const sanitizeJid = (jid) => {
+  if (!jid || typeof jid !== 'string') return null;
+  const trimmed = jid.trim();
+
+  // If group
+  if (trimmed.includes('@g.us')) {
+    const groupId = trimmed.split('@g.us')[0].replace(/[^0-9-]/g, '');
+    return groupId ? `${groupId}@g.us` : null;
+  }
+
+  // If lid
+  if (trimmed.includes('@lid')) {
+    const lidId = trimmed.split('@lid')[0].replace(/[^0-9]/g, '');
+    return lidId ? `${lidId}@lid` : null;
+  }
+
+  // If broadcast or newsletter
+  if (trimmed.includes('@broadcast') || trimmed.includes('@newsletter')) {
+    return trimmed;
+  }
+
+  // If standard user JID or plain phone
+  let userPart = trimmed;
+  if (trimmed.includes('@s.whatsapp.net')) {
+    userPart = trimmed.split('@s.whatsapp.net')[0].split(':')[0];
+  } else if (trimmed.includes('@')) {
+    userPart = trimmed.split('@')[0];
+  }
+
+  const phoneRes = formatPhoneNumber(userPart);
+  if (phoneRes.isValid) {
+    if (phoneRes.isGroup) return phoneRes.formattedPhone;
+    return `${phoneRes.formattedPhone}@s.whatsapp.net`;
+  }
+
+  return null;
 };
+
+module.exports = {
+  formatPhoneNumber,
+  sanitizeJid
+};
+

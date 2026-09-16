@@ -447,6 +447,22 @@ export default function WaWebChatPage({ waStatus, onActiveChatChange, selectedCh
       );
     });
 
+    const unsubAiSettingUpdated = onEvent('ai_setting_updated', (updatedSetting) => {
+      if (updatedSetting && activeChat && (activeChat.jid === updatedSetting.jid || activeChat.phone === updatedSetting.jid?.replace(/[^0-9]/g, ''))) {
+        setActiveAiSetting(updatedSetting);
+      }
+      if (updatedSetting?.jid) {
+        const cleanJidPhone = updatedSetting.jid.replace(/[^0-9]/g, '');
+        setChats((prev) =>
+          prev.map((c) =>
+            c.jid === updatedSetting.jid || c.phone === cleanJidPhone
+              ? { ...c, auto_reply_enabled: updatedSetting.auto_reply_enabled }
+              : c
+          )
+        );
+      }
+    });
+
     return () => {
       unsubSync();
       unsubChatSync();
@@ -462,6 +478,7 @@ export default function WaWebChatPage({ waStatus, onActiveChatChange, selectedCh
       unsubEdit();
       unsubMsgUpdated();
       unsubDeleteForMe();
+      unsubAiSettingUpdated();
     };
   }, [activeChat, onEvent]);
 

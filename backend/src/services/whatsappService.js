@@ -25,7 +25,7 @@ const socketService = require("./socketService");
 const ffmpeg = require("fluent-ffmpeg");
 const ffmpegStatic = require("ffmpeg-static");
 const { enqueueDispatch } = require("../jobs/messageQueue");
-const { formatPhoneNumber } = require("../utils/phoneValidator");
+const { formatPhoneNumber, sanitizeJid } = require("../utils/phoneValidator");
 
 if (ffmpegStatic) {
   ffmpeg.setFfmpegPath(ffmpegStatic);
@@ -226,7 +226,16 @@ class WhatsappService {
   async restoreSessionFilesFromDb(userId, sessionName = "default", sessionDir) {
     try {
       const credPath = path.join(sessionDir, "creds.json");
-      if (fs.existsSync(credPath)) return true;
+      let isCredValid = false;
+      if (fs.existsSync(credPath) && fs.statSync(credPath).size > 20) {
+        try {
+          const parsed = JSON.parse(fs.readFileSync(credPath, "utf8"));
+          if (parsed && (parsed.registered || parsed.me)) {
+            isCredValid = true;
+          }
+        } catch (e) {}
+      }
+      if (isCredValid) return true;
 
       try {
         const { getRedisClient } = require("../config/redis");
@@ -570,14 +579,12 @@ class WhatsappService {
 
         const isRegistered = !!(sock?.authState?.creds?.registered || sock?.authState?.creds?.me);
 
-        if (
-          statusCode === DisconnectReason.loggedOut ||
-          statusCode === DisconnectReason.forbidden ||
-          statusCode === DisconnectReason.badSession ||
-          statusCode === 401 ||
-          statusCode === 403
-        ) {
-          console.warn(`[WhatsApp - ${userId}] Sesi WhatsApp telah di-logout dari perangkat HP atau sesi tidak valid.`);
+        // Hanya logout sesungguhnya (HTTP 401 / DisconnectReason.loggedOut) yang boleh menghapus sesi & backup!
+        // DisconnectReason.badSession (500) ATAU stream error lainnya BUKAN logout, melainkan error server/jaringan yang harus direconnect.
+        const isExplicitLogout = (statusCode === DisconnectReason.loggedOut || statusCode === 401);
+
+        if (isExplicitLogout) {
+          console.warn(`[WhatsApp - ${userId}] Sesi WhatsApp telah di-logout dari perangkat HP.`);
           sessionState.destroyed = true;
           this.sessions.delete(key);
 
@@ -623,8 +630,9 @@ class WhatsappService {
           return;
         }
 
-        const currentAttempts = (sessionState.reconnectAttempts || 0) + 1;
-        if (currentAttempts > 6) {
+        const isRestart = statusCode === DisconnectReason.restartRequired || statusCode === 515;
+        const currentAttempts = isRestart ? 0 : (sessionState.reconnectAttempts || 0) + 1;
+        if (!isRestart && currentAttempts > 6) {
           console.warn(`[WhatsApp - ${userId}] Telah mencapai batas maksimal percobaan reconnect (${currentAttempts - 1}x). Beralih ke status DISCONNECTED.`);
           sessionState.destroyed = true;
           this.sessions.delete(key);
@@ -951,8 +959,12 @@ class WhatsappService {
     }
   }
 
-  async fetchProfilePicture(userId, sessionName = "default", jid) {
+  async fetchProfilePicture(userId, sessionName = "default", rawJid) {
+    const jid = sanitizeJid(rawJid);
     if (!jid || jid.includes("@newsletter") || jid.includes("status@broadcast") || jid === "0@s.whatsapp.net") {
+      return null;
+    }
+    if ((jid.match(/@/g) || []).length !== 1) {
       return null;
     }
     const key = this.getSessionKey(userId, sessionName);
@@ -1042,16 +1054,7 @@ class WhatsappService {
         console.warn(`[WhatsApp - ${userId}] Error fetching groups:`, grpErr.message);
       }
 
-      // Trigger app state sync so Baileys fetches latest contacts from WhatsApp server
-      if (typeof session.sock.resyncAppState === "function") {
-        try {
-          await session.sock.resyncAppState(ALL_WA_PATCH_NAMES, false);
-        } catch (appErr) {
-          console.warn(`[WhatsApp - ${userId}] resyncAppState warning:`, appErr.message);
-        }
-      }
-
-      // Sync stored in-memory contacts
+      // Sync stored in-memory contacts if available
       if (session.contacts && session.contacts.size > 0) {
         for (const c of session.contacts.values()) {
           await this._processContactObject(userId, sessionName, c);
@@ -1694,6 +1697,16 @@ class WhatsappService {
               text: replyText,
               sessionName,
             });
+
+            if (aiSetting.disable_after_one_reply) {
+              try {
+                const updatedSetting = await ChatAiSettingModel.toggleAutoReply(userId, remoteJid, false);
+                socketService.emitToUser(userId, 'ai_setting_updated', updatedSetting);
+                socketService.emitToUser(userId, 'chats_updated', {});
+              } catch (toggleErr) {
+                console.warn(`[WhatsApp - ${userId}] Error auto-deactivating AI setting:`, toggleErr.message);
+              }
+            }
           }
         }
       } finally {
@@ -1718,19 +1731,19 @@ class WhatsappService {
       throw new Error("WhatsApp Anda belum terhubung. Silakan hubungkan WhatsApp terlebih dahulu.");
     }
 
-    const isGroup = typeof jid === "string" && jid.endsWith("@g.us");
-    let cleanJid = jid;
-    let cleanPhone = isGroup ? jid : (jid ? String(jid).replace(/[^0-9]/g, "") : "");
+    const cleanJidRaw = sanitizeJid(jid);
+    if (!cleanJidRaw) {
+      throw new Error("Format JID penerima tidak valid");
+    }
 
-    if (typeof jid === "string" && jid.endsWith("@lid")) {
-      const resolved = this.resolveLidToPhone(userId, sessionName, jid);
+    const isGroup = cleanJidRaw.endsWith("@g.us");
+    let cleanJid = cleanJidRaw;
+    let cleanPhone = isGroup ? cleanJidRaw : cleanJidRaw.replace(/[^0-9]/g, "");
+
+    if (cleanJidRaw.endsWith("@lid")) {
+      const resolved = this.resolveLidToPhone(userId, sessionName, cleanJidRaw);
       cleanJid = resolved.jid;
       cleanPhone = resolved.phone;
-    } else if (!isGroup) {
-      const numOnly = (jid && String(jid).includes("@") ? String(jid).split("@")[0] : cleanPhone).replace(/[^0-9]/g, "");
-      const formatted = formatPhoneNumber(numOnly);
-      cleanPhone = formatted.isValid ? formatted.formattedPhone : numOnly;
-      cleanJid = `${cleanPhone}@s.whatsapp.net`;
     }
 
     const contact = await ContactModel.findOrCreate(userId, {
@@ -1992,15 +2005,18 @@ class WhatsappService {
 
   async requestMissingMedia(userId, sessionName = "default", messageId, remoteJid, participant = undefined) {
     if (!messageId) return;
+    const cleanJid = sanitizeJid(remoteJid);
+    if (!cleanJid || (cleanJid.match(/@/g) || []).length !== 1) return;
+
     const key = this.getSessionKey(userId, sessionName);
     const session = this.sessions.get(key);
     if (!session || !session.sock || session.status !== "CONNECTED") return;
 
     const cleanKey = {
-      remoteJid: remoteJid || undefined,
+      remoteJid: cleanJid,
       fromMe: false,
       id: messageId,
-      participant: participant || undefined,
+      participant: participant ? (sanitizeJid(participant) || participant) : undefined,
     };
     try {
       if (typeof session.sock.requestPlaceholderResend === "function") {
@@ -2083,8 +2099,17 @@ class WhatsappService {
 
     const sessionDir = path.join(SESSIONS_BASE_DIR, `${userId}_${sessionName}`);
     const credPath = path.join(sessionDir, "creds.json");
+    let isCredValid = false;
+    if (fs.existsSync(credPath) && fs.statSync(credPath).size > 20) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(credPath, "utf8"));
+        if (parsed && (parsed.registered || parsed.me)) {
+          isCredValid = true;
+        }
+      } catch (e) {}
+    }
 
-    if (!fs.existsSync(credPath)) {
+    if (!isCredValid) {
       await this.restoreSessionFilesFromDb(userId, sessionName, sessionDir);
     }
 
@@ -2333,9 +2358,14 @@ class WhatsappService {
       throw new Error("WhatsApp Bot untuk akun ini belum terhubung (CONNECTED).");
     }
 
-    const isGroup = typeof toPhone === "string" && toPhone.endsWith("@g.us");
-    const cleanPhone = isGroup ? toPhone : toPhone.replace(/[^0-9]/g, "");
-    const jid = isGroup ? toPhone : `${cleanPhone}@s.whatsapp.net`;
+    const cleanJidRaw = sanitizeJid(toPhone);
+    if (!cleanJidRaw) {
+      throw new Error("Nomor atau JID tujuan tidak valid");
+    }
+
+    const isGroup = cleanJidRaw.endsWith("@g.us");
+    const cleanPhone = isGroup ? cleanJidRaw : cleanJidRaw.replace(/[^0-9]/g, "");
+    const jid = cleanJidRaw;
 
     const sent = await activeSock.sendMessage(jid, {
       text: messageText.trim(),
@@ -2395,19 +2425,19 @@ class WhatsappService {
       throw new Error("WhatsApp Anda belum terhubung. Silakan hubungkan WhatsApp terlebih dahulu.");
     }
 
-    const isGroup = typeof jid === "string" && jid.endsWith("@g.us");
-    let cleanJid = jid;
-    let cleanPhone = isGroup ? jid : (jid ? String(jid).replace(/[^0-9]/g, "") : "");
+    const cleanJidRaw = sanitizeJid(jid);
+    if (!cleanJidRaw) {
+      throw new Error("Format JID penerima tidak valid");
+    }
 
-    if (typeof jid === "string" && jid.endsWith("@lid")) {
-      const resolved = this.resolveLidToPhone(userId, sessionName, jid);
+    const isGroup = cleanJidRaw.endsWith("@g.us");
+    let cleanJid = cleanJidRaw;
+    let cleanPhone = isGroup ? cleanJidRaw : cleanJidRaw.replace(/[^0-9]/g, "");
+
+    if (cleanJidRaw.endsWith("@lid")) {
+      const resolved = this.resolveLidToPhone(userId, sessionName, cleanJidRaw);
       cleanJid = resolved.jid;
       cleanPhone = resolved.phone;
-    } else if (!isGroup) {
-      const numOnly = (jid && String(jid).includes("@") ? String(jid).split("@")[0] : cleanPhone).replace(/[^0-9]/g, "");
-      const formatted = formatPhoneNumber(numOnly);
-      cleanPhone = formatted.isValid ? formatted.formattedPhone : numOnly;
-      cleanJid = `${cleanPhone}@s.whatsapp.net`;
     }
 
     const isVo = (isViewOnce === true || isViewOnce === "true" || isViewOnce === 1);
@@ -2579,19 +2609,19 @@ class WhatsappService {
       throw new Error("WhatsApp belum terhubung");
     }
 
-    const isGroup = typeof jid === "string" && jid.endsWith("@g.us");
-    let cleanJid = jid;
-    let cleanPhone = isGroup ? jid : (jid ? String(jid).replace(/[^0-9]/g, "") : "");
+    const cleanJidRaw = sanitizeJid(jid);
+    if (!cleanJidRaw) {
+      throw new Error("Format JID penerima tidak valid");
+    }
 
-    if (typeof jid === "string" && jid.endsWith("@lid")) {
-      const resolved = this.resolveLidToPhone(userId, sessionName, jid);
+    const isGroup = cleanJidRaw.endsWith("@g.us");
+    let cleanJid = cleanJidRaw;
+    let cleanPhone = isGroup ? cleanJidRaw : cleanJidRaw.replace(/[^0-9]/g, "");
+
+    if (cleanJidRaw.endsWith("@lid")) {
+      const resolved = this.resolveLidToPhone(userId, sessionName, cleanJidRaw);
       cleanJid = resolved.jid;
       cleanPhone = resolved.phone;
-    } else if (!isGroup) {
-      const numOnly = (jid && String(jid).includes("@") ? String(jid).split("@")[0] : cleanPhone).replace(/[^0-9]/g, "");
-      const formatted = formatPhoneNumber(numOnly);
-      cleanPhone = formatted.isValid ? formatted.formattedPhone : numOnly;
-      cleanJid = `${cleanPhone}@s.whatsapp.net`;
     }
 
     let finalBuffer = audioBuffer;

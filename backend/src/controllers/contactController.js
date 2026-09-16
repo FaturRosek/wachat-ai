@@ -1,27 +1,17 @@
 const ContactService = require('../services/contactService');
+const ContactModel = require('../models/contactModel');
 const WhatsappSessionModel = require('../models/whatsappSessionModel');
+const WhatsappService = require('../services/whatsappService');
 
 const ContactController = {
   async getContacts(req, res, next) {
     try {
-      const session = await WhatsappSessionModel.getByUserId(req.user.id);
-      if (!session || session.status !== 'CONNECTED') {
-        return res.status(200).json({
-          success: true,
-          data: {
-            contacts: [],
-            total: 0,
-            count: 0
-          }
-        });
-      }
-
-      const { search, type = 'personal', limit = 100, offset = 0 } = req.query;
+      const { search, type = 'personal', limit = 500, offset = 0 } = req.query;
       const { rows, total } = await ContactService.getContacts(req.user.id, {
         search,
         type,
-        limit: parseInt(limit, 10),
-        offset: parseInt(offset, 10)
+        limit: Math.min(parseInt(limit, 10) || 500, 2000),
+        offset: parseInt(offset, 10) || 0
       });
 
       res.status(200).json({
@@ -30,6 +20,41 @@ const ContactController = {
           contacts: rows,
           total,
           count: rows.length
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async syncContacts(req, res, next) {
+    try {
+      // 1. Backfill contacts from message history
+      await ContactModel.syncContactsFromMessages(req.user.id).catch(() => {});
+
+      // 2. Trigger Baileys sync if connected
+      const session = await WhatsappSessionModel.getByUserId(req.user.id);
+      let waSynced = false;
+      if (session && session.status === 'CONNECTED') {
+        await WhatsappService.syncGroupsAndChats(req.user.id).catch(() => {});
+        waSynced = true;
+      }
+
+      const { type = 'personal', limit = 500 } = req.query;
+      const { rows, total } = await ContactService.getContacts(req.user.id, {
+        type,
+        limit: Math.min(parseInt(limit, 10) || 500, 2000),
+        offset: 0
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'Kontak berhasil disinkronkan!',
+        data: {
+          contacts: rows,
+          total,
+          count: rows.length,
+          waSynced
         }
       });
     } catch (error) {

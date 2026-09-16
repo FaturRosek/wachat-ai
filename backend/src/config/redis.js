@@ -1,9 +1,18 @@
 const Redis = require('ioredis');
 require('dotenv').config();
 
-const redisConfig = process.env.REDIS_URL
+function sanitizeRedisUrl(url) {
+  if (!url) return '';
+  const str = String(url).trim();
+  const match = str.match(/rediss?:\/\/[^\s"'`)]+/i);
+  return match ? match[0] : str.replace(/^["']|["']$/g, '');
+}
+
+const rawRedisUrl = sanitizeRedisUrl(process.env.REDIS_URL);
+
+const redisConfig = rawRedisUrl
   ? {
-      url: process.env.REDIS_URL,
+      url: rawRedisUrl,
       maxRetriesPerRequest: null,
       enableReadyCheck: false,
       retryStrategy(times) {

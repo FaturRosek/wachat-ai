@@ -260,26 +260,36 @@ class WhatsappService {
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
     const version = await getWAVersion();
 
+    const existingDb = await WhatsappSessionModel.getByUserId(userId, sessionName);
+    const registeredPhone = state.creds?.me?.id
+      ? state.creds.me.id.split(":")[0].replace(/[^0-9]/g, "")
+      : (existingDb?.phone_number || existing?.phoneNumber || null);
+
+    const initialStatus = cleanPairingPhone
+      ? "PAIRING_CODE"
+      : (existing?.reconnectAttempts > 0 ? "RECONNECTING" : "CONNECTING");
+
     await WhatsappSessionModel.upsert(userId, {
       sessionName,
-      status: cleanPairingPhone ? "PAIRING_CODE" : "CONNECTING",
-      phoneNumber: cleanPairingPhone || null,
+      status: initialStatus,
+      phoneNumber: cleanPairingPhone || registeredPhone || null,
       qrCode: null,
-      sessionData: cleanPairingPhone ? { pairingPhone: cleanPairingPhone } : null,
+      sessionData: cleanPairingPhone ? { pairingPhone: cleanPairingPhone } : (existingDb?.session_data || null),
     });
 
     const sessionState = {
       sock: null,
-      status: "CONNECTING",
+      status: initialStatus,
       qr: null,
       qrImage: null,
       pairingPhone: cleanPairingPhone,
       pairingCode: null,
       pairingPromise: null,
-      phoneNumber: null,
-      reconnectAttempts: 0,
+      phoneNumber: cleanPairingPhone || registeredPhone || null,
+      reconnectAttempts: existing?.reconnectAttempts || 0,
       destroyed: false,
-      contacts: new Map(),
+      manualDisconnect: false,
+      contacts: existing?.contacts || new Map(),
     };
     this.sessions.set(key, sessionState);
 
@@ -295,7 +305,7 @@ class WhatsappService {
         },
         logger,
         printQRInTerminal: false,
-        browser: Browsers.ubuntu("Chrome"),
+        browser: Browsers.macOS("Desktop"),
         syncFullHistory: false,
         shouldSyncHistoryMessage: (historyMsg) => {
           const oneWeekAgoSec = Math.floor((Date.now() - 7 * 24 * 60 * 60 * 1000) / 1000);
@@ -306,7 +316,7 @@ class WhatsappService {
         markOnlineOnConnect: true,
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
-        keepAliveIntervalMs: 25000,
+        keepAliveIntervalMs: 15000,
         generateHighQualityLinkPreview: true,
         getMessage: async (key) => {
           if (key && key.id) {
@@ -441,26 +451,21 @@ class WhatsappService {
       }
 
       if (connection === "close") {
-        const statusCode = lastDisconnect?.error?.output?.statusCode;
+        if (sessionState.destroyed && sessionState.manualDisconnect) {
+          return;
+        }
+
+        const statusCode = lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error?.status;
+        const errorMessage = lastDisconnect?.error?.message || "Connection closed";
+        console.warn(`[WhatsApp - ${userId}] Connection closed. Status code: ${statusCode}, Reason: ${errorMessage}`);
 
         if (
           statusCode === DisconnectReason.loggedOut ||
           statusCode === DisconnectReason.forbidden
         ) {
-          await this.disconnectSession(userId, sessionName);
-          return;
-        }
-
-        if (statusCode === DisconnectReason.badSession) {
+          console.warn(`[WhatsApp - ${userId}] Sesi WhatsApp telah di-logout dari perangkat HP.`);
           sessionState.destroyed = true;
           this.sessions.delete(key);
-
-          try {
-            if (fs.existsSync(sessionDir)) {
-              fs.rmSync(sessionDir, { recursive: true, force: true });
-              fs.mkdirSync(sessionDir, { recursive: true });
-            }
-          } catch (e) {}
 
           try {
             await WhatsappSessionModel.updateStatus(userId, "DISCONNECTED", {
@@ -472,93 +477,56 @@ class WhatsappService {
 
           socketService.emitToUser(userId, "wa_status", {
             status: "DISCONNECTED",
+            phoneNumber: null,
           });
-
-          setTimeout(() => {
-            if (!this.sessions.has(key)) {
-              this.initSession(userId, sessionName, false, sessionState.pairingPhone).catch((err) => {
-                console.error(`[WhatsApp - ${userId}] Reinit failed:`, err.message);
-              });
-            }
-          }, 3000);
-          return;
-        }
-
-        if (
-          statusCode === DisconnectReason.connectionClosed ||
-          statusCode === DisconnectReason.connectionLost ||
-          statusCode === DisconnectReason.timedOut ||
-          statusCode === DisconnectReason.restartRequired ||
-          statusCode === 515
-        ) {
-          const maxAttempts = 8;
-
-          if (sessionState.reconnectAttempts >= maxAttempts) {
-            sessionState.destroyed = true;
-            sessionState.status = "DISCONNECTED";
-            this.sessions.delete(key);
-
-            try {
-              await WhatsappSessionModel.updateStatus(userId, "DISCONNECTED", {
-                qrCode: null,
-                sessionData: null,
-                sessionName,
-              });
-            } catch (e) {}
-
-            socketService.emitToUser(userId, "wa_status", {
-              status: "DISCONNECTED",
-            });
-            return;
-          }
-
-          sessionState.reconnectAttempts++;
-          sessionState.status = "RECONNECTING";
-          sessionState.qr = null;
-          sessionState.qrImage = null;
-          sessionState.destroyed = true;
-
-          try {
-            await WhatsappSessionModel.updateStatus(userId, "RECONNECTING", {
-              qrCode: null,
-              sessionName,
-            });
-          } catch (e) {}
-
-          socketService.emitToUser(userId, "wa_status", {
-            status: "RECONNECTING",
-          });
-
-          const delay = (statusCode === DisconnectReason.restartRequired || statusCode === 515) ? 1000 : 3000;
-          const attempt = sessionState.reconnectAttempts;
-
-          this.sessions.delete(key);
-
-          setTimeout(() => {
-            if (!this.sessions.has(key)) {
-              this.initSession(userId, sessionName, false, sessionState.pairingPhone).catch((err) => {
-                console.error(`[WhatsApp - ${userId}] Reconnect attempt ${attempt} failed:`, err.message);
-              });
-            }
-          }, delay);
           return;
         }
 
         sessionState.destroyed = true;
-        sessionState.status = "DISCONNECTED";
-        this.sessions.delete(key);
+        sessionState.status = "RECONNECTING";
+        sessionState.qr = null;
+        sessionState.qrImage = null;
+
+        const currentAttempts = (sessionState.reconnectAttempts || 0) + 1;
+        sessionState.reconnectAttempts = currentAttempts;
+        const currentPhone = sessionState.phoneNumber;
 
         try {
-          await WhatsappSessionModel.updateStatus(userId, "DISCONNECTED", {
+          await WhatsappSessionModel.updateStatus(userId, "RECONNECTING", {
             qrCode: null,
-            sessionData: null,
             sessionName,
           });
         } catch (e) {}
 
         socketService.emitToUser(userId, "wa_status", {
-          status: "DISCONNECTED",
+          status: "RECONNECTING",
+          phoneNumber: currentPhone,
         });
+
+        let delay = 3000;
+        if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
+          delay = 1000;
+        } else {
+          delay = Math.min(12000, 2000 + currentAttempts * 1000);
+        }
+
+        this.sessions.delete(key);
+
+        console.log(`[WhatsApp - ${userId}] Auto-reconnect dijadwalkan dalam ${delay}ms (Percobaan #${currentAttempts})...`);
+
+        setTimeout(() => {
+          if (!this.sessions.has(key) && !sessionState.manualDisconnect) {
+            this.initSession(userId, sessionName, false, sessionState.pairingPhone).catch((err) => {
+              console.error(`[WhatsApp - ${userId}] Reconnect attempt #${currentAttempts} error:`, err.message);
+              setTimeout(() => {
+                if (!this.sessions.has(key) && !sessionState.manualDisconnect) {
+                  this.initSession(userId, sessionName, false, sessionState.pairingPhone).catch(() => {});
+                }
+              }, 4000);
+            });
+          }
+        }, delay);
+        return;
       }
     });
 
@@ -1963,14 +1931,16 @@ class WhatsappService {
     if (fs.existsSync(credPath)) {
       try {
         const credData = JSON.parse(fs.readFileSync(credPath, "utf8"));
-        if (credData.registered) {
+        if (credData.registered || credData.me) {
           const rawPhone = credData.me?.id
-            ? credData.me.id.split(":")[0]
+            ? credData.me.id.split(":")[0].replace(/[^0-9]/g, "")
             : dbSession?.phone_number || null;
 
-          this.initSession(userId, sessionName).catch((err) => {
-            console.error(`[WhatsApp - ${userId}] Auto-init failed:`, err.message);
-          });
+          if (!this.sessions.has(key)) {
+            this.initSession(userId, sessionName).catch((err) => {
+              console.error(`[WhatsApp - ${userId}] Auto-init failed:`, err.message);
+            });
+          }
 
           return {
             status: "CONNECTING",
@@ -1985,15 +1955,21 @@ class WhatsappService {
       } catch (e) {}
     }
 
-    if (dbSession && dbSession.status === "CONNECTED") {
-      try {
-        await WhatsappSessionModel.updateStatus(userId, "DISCONNECTED", {
-          phoneNumber: null,
-          qrCode: null,
-          sessionData: null,
-          sessionName,
+    if (dbSession && (dbSession.status === "CONNECTED" || dbSession.status === "RECONNECTING")) {
+      if (!this.sessions.has(key)) {
+        this.initSession(userId, sessionName).catch((err) => {
+          console.error(`[WhatsApp - ${userId}] Auto-init failed:`, err.message);
         });
-      } catch (e) {}
+      }
+      return {
+        status: "RECONNECTING",
+        phoneNumber: dbSession.phone_number || null,
+        pairingPhone: null,
+        pairingCode: null,
+        qrCode: null,
+        sessionName,
+        updatedAt: dbSession.updated_at || new Date(),
+      };
     }
 
     if (dbSession && dbSession.status === "PAIRING_CODE" && dbSession.session_data?.pairingCode) {
@@ -2024,6 +2000,7 @@ class WhatsappService {
     const sessionState = this.sessions.get(key);
 
     if (sessionState) {
+      sessionState.manualDisconnect = true;
       sessionState.destroyed = true;
       sessionState.status = "DISCONNECTED";
       sessionState.pairingCode = null;
@@ -2620,7 +2597,7 @@ class WhatsappService {
             if (fs.existsSync(credPath)) {
               try {
                 const credData = JSON.parse(fs.readFileSync(credPath, "utf8"));
-                if (credData.registered) {
+                if (credData.registered || credData.me) {
                   sessionMap.set(`${userId}_${sessionName}`, {
                     userId,
                     sessionName,

@@ -26,14 +26,14 @@ function DashboardLayout() {
         setWaStatus(res.data.data);
       }
     } catch (err) {
-      if (err.response?.status !== 429) {
+      if (err.response?.status === 401) {
         setWaStatus({ status: 'DISCONNECTED', phoneNumber: null });
       }
     }
   };
 
   const fetchUnreadTotal = async () => {
-    if (waStatus && waStatus.status !== 'CONNECTED') {
+    if (waStatus && waStatus.status === 'DISCONNECTED') {
       setUnreadTotal(0);
       return;
     }
@@ -42,11 +42,9 @@ function DashboardLayout() {
       if (res.data.success && Array.isArray(res.data.data)) {
         const sum = res.data.data.reduce((acc, c) => acc + (c.unread_count || 1), 0);
         setUnreadTotal(sum);
-      } else {
-        setUnreadTotal(0);
       }
     } catch (e) {
-      setUnreadTotal(0);
+      // Keep existing unread total on network failure
     }
   };
 

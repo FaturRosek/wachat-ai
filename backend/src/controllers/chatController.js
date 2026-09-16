@@ -9,23 +9,6 @@ const aiService = require('../services/aiService');
 const ChatController = {
   async getChats(req, res, next) {
     try {
-      const session = await WhatsappSessionModel.getByUserId(req.user.id);
-      if (session && session.status === 'DISCONNECTED') {
-        const key = WhatsappService.getSessionKey(req.user.id, 'default');
-        const activeMemSession = WhatsappService.sessions.get(key);
-        if (!activeMemSession || activeMemSession.status === 'DISCONNECTED') {
-          await MessageModel.deleteAllByUser(req.user.id);
-          await ContactModel.deleteAllByUser(req.user.id);
-          await CallLogModel.deleteAllByUser(req.user.id);
-          await ChatAiSettingModel.deleteAllByUser(req.user.id);
-
-          return res.status(200).json({
-            success: true,
-            data: []
-          });
-        }
-      }
-
       const { search = '', filter = 'all' } = req.query;
       const chats = await ContactModel.getChatsList(req.user.id, { search, filter });
       
@@ -42,23 +25,6 @@ const ChatController = {
     try {
       const { jid } = req.params;
       const { limit = 100, offset = 0 } = req.query;
-
-      const session = await WhatsappSessionModel.getByUserId(req.user.id);
-      if (session && session.status === 'DISCONNECTED') {
-        const key = WhatsappService.getSessionKey(req.user.id, 'default');
-        const activeMemSession = WhatsappService.sessions.get(key);
-        if (!activeMemSession || activeMemSession.status === 'DISCONNECTED') {
-          return res.status(200).json({
-            success: true,
-            data: {
-              jid,
-              contact: null,
-              aiSetting: null,
-              messages: []
-            }
-          });
-        }
-      }
 
       await ContactModel.resetUnread(req.user.id, jid);
 

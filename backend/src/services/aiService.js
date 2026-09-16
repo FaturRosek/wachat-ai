@@ -6,7 +6,7 @@ class AiService {
     this.geminiApiKey = process.env.GEMINI_API_KEY || '';
     this.openaiApiKey = process.env.OPENAI_API_KEY || '';
     this.provider = process.env.AI_PROVIDER || 'gemini';
-    this.model = process.env.AI_MODEL || (this.provider === 'openai' ? 'gpt-4o-mini' : 'gemini-3.5-flash');
+    this.model = process.env.AI_MODEL || (this.provider === 'openai' ? 'gpt-4o-mini' : 'gemini-3.8-flash');
   }
 
   getSystemInstruction() {
@@ -48,13 +48,12 @@ FORMAT OUTPUT WAJIB JSON MURNI:
     const apiKey = process.env.GEMINI_API_KEY || this.geminiApiKey;
     if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
 
-    const primaryModel = process.env.AI_MODEL || this.model || 'gemini-3.5-flash';
+    const primaryModel = process.env.AI_MODEL || this.model || 'gemini-3.8-flash';
     const candidateModels = [
       primaryModel,
-      'gemini-3.5-flash',
+      'gemini-3.8-flash',
       'gemini-3.7-flash',
-      'gemini-3.5-flash-lite',
-      'gemini-flash-lite-latest',
+      'gemini-3.5-flash',
       'gemini-flash-latest'
     ];
     const uniqueModels = [...new Set(candidateModels)];

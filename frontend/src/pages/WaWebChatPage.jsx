@@ -115,7 +115,7 @@ export default function WaWebChatPage({ waStatus, onActiveChatChange }) {
   };
 
   const fetchChats = async () => {
-    if (waStatus && waStatus.status !== 'CONNECTED') {
+    if (waStatus && waStatus.status === 'DISCONNECTED') {
       setChats([]);
       setActiveChat(null);
       setMessages([]);
@@ -140,7 +140,7 @@ export default function WaWebChatPage({ waStatus, onActiveChatChange }) {
   };
 
   const handleSyncAll = async () => {
-    if (waStatus && waStatus.status !== 'CONNECTED') {
+    if (waStatus && waStatus.status === 'DISCONNECTED') {
       alert('WhatsApp belum terhubung. Silakan hubungkan WhatsApp terlebih dahulu.');
       return;
     }
@@ -161,7 +161,7 @@ export default function WaWebChatPage({ waStatus, onActiveChatChange }) {
   };
 
   useEffect(() => {
-    if (waStatus && waStatus.status !== 'CONNECTED') {
+    if (waStatus && waStatus.status === 'DISCONNECTED') {
       setChats([]);
       setActiveChat(null);
       setMessages([]);
@@ -1089,6 +1089,18 @@ export default function WaWebChatPage({ waStatus, onActiveChatChange }) {
             </button>
           </div>
         </div>
+
+        {waStatus?.status === 'RECONNECTING' && (
+          <div className="px-4 py-2 bg-amber-500/10 dark:bg-amber-500/15 border-b border-amber-500/25 flex items-center justify-between text-xs text-amber-700 dark:text-amber-300 font-medium animate-pulse">
+            <div className="flex items-center gap-2">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-600 dark:text-amber-400" />
+              <span>Menghubungkan kembali ke WhatsApp...</span>
+            </div>
+            <span className="text-[10px] bg-amber-500/20 text-amber-800 dark:text-amber-200 px-1.5 py-0.5 rounded font-semibold">
+              Auto-reconnect
+            </span>
+          </div>
+        )}
 
         <div className="px-3 pb-2 pt-2 bg-white dark:bg-[#111b21]">
           <div className="relative">

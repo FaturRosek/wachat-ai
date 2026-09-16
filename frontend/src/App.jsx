@@ -9,7 +9,9 @@ import WhatsappConnectionPage from './pages/WhatsappConnectionPage';
 import WaWebChatPage from './pages/WaWebChatPage';
 import MessageComposerPage from './pages/MessageComposerPage';
 import IncomingCallModal from './components/chat/IncomingCallModal';
+import IncomingMessageToast from './components/chat/IncomingMessageToast';
 import { useSocket } from './context/SocketContext';
+import { playNotificationSound, showDesktopNotification } from './utils/notificationHelper';
 
 function DashboardLayout() {
   const { user } = useAuth();
@@ -18,6 +20,8 @@ function DashboardLayout() {
   const [waStatus, setWaStatus] = useState(null);
   const [unreadTotal, setUnreadTotal] = useState(0);
   const [hasActiveChat, setHasActiveChat] = useState(false);
+  const [selectedChatJid, setSelectedChatJid] = useState(null);
+  const [incomingToast, setIncomingToast] = useState(null);
 
   const fetchWaStatus = async () => {
     try {
@@ -67,8 +71,39 @@ function DashboardLayout() {
       fetchUnreadTotal();
     });
 
-    const unsubMsg = onEvent('message_new', () => {
+    const unsubMsg = onEvent('message_new', (payload) => {
       fetchUnreadTotal();
+
+      const message = payload?.message;
+      const contact = payload?.contact;
+      const remoteJid = payload?.remoteJid || message?.remote_jid;
+
+      const isIncoming = message && !message.from_me && !message.fromMe && message.direction !== 'OUTGOING';
+
+      if (isIncoming) {
+        playNotificationSound();
+
+        const senderTitle = contact?.name || contact?.push_name || message.sender_name || (message.phone ? `+${message.phone}` : 'WhatsApp');
+        const snippet = message.content || (message.media_type === 'image' ? '📷 Foto' : message.media_type === 'video' ? '🎥 Video' : message.media_type === 'voice' ? '🎤 Pesan Suara' : '📄 Dokumen');
+        const avatarUrl = contact?.avatar_url || null;
+
+        showDesktopNotification({
+          title: senderTitle,
+          body: snippet,
+          icon: avatarUrl || '/favicon.svg',
+          onClick: () => {
+            setActiveTab('chat');
+            setSelectedChatJid(remoteJid);
+          },
+        });
+
+        setIncomingToast({
+          title: senderTitle,
+          body: snippet,
+          avatar: avatarUrl,
+          jid: remoteJid,
+        });
+      }
     });
 
     const interval = setInterval(() => {
@@ -102,6 +137,8 @@ function DashboardLayout() {
           <WaWebChatPage
             waStatus={waStatus}
             onActiveChatChange={setHasActiveChat}
+            selectedChatJid={selectedChatJid}
+            onChatSelected={() => setSelectedChatJid(null)}
           />
         )}
 
@@ -121,6 +158,15 @@ function DashboardLayout() {
       <IncomingCallModal
         call={incomingCall}
         onClose={() => setIncomingCall(null)}
+      />
+
+      <IncomingMessageToast
+        toast={incomingToast}
+        onOpenChat={(jid) => {
+          setActiveTab('chat');
+          setSelectedChatJid(jid);
+        }}
+        onClose={() => setIncomingToast(null)}
       />
     </div>
   );

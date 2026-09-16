@@ -48,7 +48,7 @@ import WhatsAppVideoPlayer from '../components/chat/WhatsAppVideoPlayer';
 import MediaViewerModal from '../components/chat/MediaViewerModal';
 import { getMediaUrl } from '../utils/mediaUrl';
 
-export default function WaWebChatPage({ waStatus, onActiveChatChange }) {
+export default function WaWebChatPage({ waStatus, onActiveChatChange, selectedChatJid, onChatSelected }) {
   const { onEvent } = useSocket();
 
   const [chats, setChats] = useState([]);
@@ -60,6 +60,18 @@ export default function WaWebChatPage({ waStatus, onActiveChatChange }) {
       onActiveChatChange(!!activeChat);
     }
   }, [activeChat, onActiveChatChange]);
+
+  useEffect(() => {
+    if (selectedChatJid && chats.length > 0) {
+      const found = chats.find(
+        (c) => c.jid === selectedChatJid || c.phone === selectedChatJid.replace(/[^0-9]/g, '')
+      );
+      if (found) {
+        handleSelectChat(found);
+        if (typeof onChatSelected === 'function') onChatSelected();
+      }
+    }
+  }, [selectedChatJid, chats]);
   const [loadingChats, setLoadingChats] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [inputText, setInputText] = useState('');

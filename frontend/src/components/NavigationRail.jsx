@@ -8,9 +8,14 @@ import {
   LogOut,
   Sun,
   Moon,
+  Bell,
+  BellOff,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { playNotificationSound, requestNotificationPermission } from '../utils/notificationHelper';
 
 export default function NavigationRail({
   activeTab,
@@ -22,10 +27,48 @@ export default function NavigationRail({
   const { user, logout } = useAuth();
   const { theme, toggleTheme, isDark } = useTheme();
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [notifMenuOpen, setNotifMenuOpen] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    return typeof window !== 'undefined' ? localStorage.getItem('wa_notif_sound_enabled') !== 'false' : true;
+  });
+  const [desktopEnabled, setDesktopEnabled] = useState(() => {
+    return typeof window !== 'undefined' ? localStorage.getItem('wa_notif_desktop_enabled') !== 'false' : true;
+  });
+  const [permState, setPermState] = useState(() => {
+    return typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported';
+  });
+
   const isConnected = waStatus?.status === 'CONNECTED';
 
   const displayName = user?.name || user?.email || 'Pengguna';
   const displayInitial = displayName.charAt(0).toUpperCase();
+
+  const handleToggleSound = () => {
+    const next = !soundEnabled;
+    setSoundEnabled(next);
+    localStorage.setItem('wa_notif_sound_enabled', String(next));
+    if (next) playNotificationSound();
+  };
+
+  const handleToggleDesktop = async () => {
+    if (!desktopEnabled || permState !== 'granted') {
+      const p = await requestNotificationPermission();
+      setPermState(p);
+      if (p === 'granted') {
+        setDesktopEnabled(true);
+        localStorage.setItem('wa_notif_desktop_enabled', 'true');
+      } else {
+        alert('Izin notifikasi browser belum diberikan. Silakan izinkan di icon gembok baris URL browser Anda.');
+      }
+    } else {
+      setDesktopEnabled(false);
+      localStorage.setItem('wa_notif_desktop_enabled', 'false');
+    }
+  };
+
+  const handleTestSound = () => {
+    playNotificationSound();
+  };
 
   return (
     <>
@@ -84,6 +127,98 @@ export default function NavigationRail({
 
         <div className="flex flex-col items-center gap-3 relative px-2">
           <button
+            onClick={() => {
+              setNotifMenuOpen(!notifMenuOpen);
+              setProfileMenuOpen(false);
+            }}
+            title="Pengaturan Notifikasi Pesan"
+            className={`w-10 h-10 rounded-2xl flex items-center justify-center relative transition-all duration-200 ${
+              notifMenuOpen
+                ? 'bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 font-bold shadow-2xs'
+                : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-700 dark:hover:text-slate-200'
+            }`}
+          >
+            {soundEnabled ? <Bell className="w-4.5 h-4.5" /> : <BellOff className="w-4.5 h-4.5 text-slate-400" />}
+            {soundEnabled && (
+              <span className="absolute top-2.5 right-2.5 w-1.5 h-1.5 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-[#0f172a]" />
+            )}
+          </button>
+
+          {notifMenuOpen && (
+            <div className="absolute bottom-24 left-14 w-72 bg-white dark:bg-[#1e293b] border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl p-4 z-50 text-slate-800 dark:text-slate-100 animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-700 mb-3">
+                <div className="flex items-center gap-2">
+                  <Bell className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-white">Notifikasi Pesan</h4>
+                </div>
+                <button
+                  onClick={() => setNotifMenuOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs p-1"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-3 text-xs">
+                <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-slate-800/60">
+                  <div className="flex items-center gap-2.5">
+                    {soundEnabled ? <Volume2 className="w-4 h-4 text-emerald-500" /> : <VolumeX className="w-4 h-4 text-slate-400" />}
+                    <div>
+                      <p className="font-bold text-slate-800 dark:text-slate-100 text-[11px]">Suara Notifikasi</p>
+                      <p className="text-[10px] text-slate-400">Bunyi lonceng saat pesan masuk</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleToggleSound}
+                    className={`w-9 h-5 rounded-full transition-colors relative ${soundEnabled ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'}`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${soundEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+
+                <button
+                  onClick={handleTestSound}
+                  className="w-full py-1.5 px-3 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 rounded-xl font-bold text-[10px] flex items-center justify-center gap-1.5 transition active:scale-95"
+                >
+                  <Volume2 className="w-3.5 h-3.5" />
+                  <span>Uji Coba Suara (Chime)</span>
+                </button>
+
+                <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-slate-800/60">
+                  <div>
+                    <p className="font-bold text-slate-800 dark:text-slate-100 text-[11px]">Pop-up Desktop</p>
+                    <p className="text-[10px] text-slate-400">
+                      {permState === 'granted' ? 'Notifikasi sistem aktif' : 'Muncul saat tab di latar belakang'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleToggleDesktop}
+                    className={`w-9 h-5 rounded-full transition-colors relative ${desktopEnabled && permState === 'granted' ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'}`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${desktopEnabled && permState === 'granted' ? 'translate-x-4' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+
+                {permState !== 'granted' && (
+                  <button
+                    onClick={async () => {
+                      const p = await requestNotificationPermission();
+                      setPermState(p);
+                      if (p === 'granted') {
+                        setDesktopEnabled(true);
+                        localStorage.setItem('wa_notif_desktop_enabled', 'true');
+                      }
+                    }}
+                    className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-[10px] transition active:scale-95 shadow-xs"
+                  >
+                    Aktifkan Izin Notifikasi Browser
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          <button
             onClick={toggleTheme}
             title={isDark ? 'Mode Terang (Light)' : 'Mode Gelap (Dark)'}
             className="w-10 h-10 rounded-2xl flex items-center justify-center text-slate-400 hover:text-amber-500 dark:hover:text-amber-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-all"
@@ -96,7 +231,10 @@ export default function NavigationRail({
           </button>
 
           <button
-            onClick={() => setProfileMenuOpen(!profileMenuOpen)}
+            onClick={() => {
+              setProfileMenuOpen(!profileMenuOpen);
+              setNotifMenuOpen(false);
+            }}
             title="Pengaturan"
             className="w-10 h-10 rounded-2xl flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition"
           >
@@ -105,7 +243,10 @@ export default function NavigationRail({
 
           <div className="relative">
             <button
-              onClick={() => setProfileMenuOpen(!profileMenuOpen)}
+              onClick={() => {
+                setProfileMenuOpen(!profileMenuOpen);
+                setNotifMenuOpen(false);
+              }}
               title={`Akun: ${displayName}`}
               className="w-9 h-9 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-md shadow-indigo-600/20 hover:scale-105 transition"
             >

@@ -363,15 +363,30 @@ export default function NavigationRail({
           </button>
 
           <button
-            onClick={toggleTheme}
-            className="flex flex-col items-center justify-center p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition"
+            onClick={() => {
+              setNotifMenuOpen(!notifMenuOpen);
+              setProfileMenuOpen(false);
+            }}
+            className={`flex flex-col items-center justify-center p-1.5 rounded-xl transition relative ${
+              notifMenuOpen
+                ? 'text-indigo-600 dark:text-indigo-400 font-bold'
+                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+            }`}
           >
-            {isDark ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-slate-400" />}
-            <span className="text-[10px] mt-0.5 font-medium">{isDark ? 'Light' : 'Dark'}</span>
+            <div className="relative">
+              {soundEnabled ? <Bell className="w-5 h-5" /> : <BellOff className="w-5 h-5 text-slate-400" />}
+              {soundEnabled && (
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-[#111b21]" />
+              )}
+            </div>
+            <span className="text-[10px] mt-0.5 font-medium">Notifikasi</span>
           </button>
 
           <button
-            onClick={() => setProfileMenuOpen(!profileMenuOpen)}
+            onClick={() => {
+              setProfileMenuOpen(!profileMenuOpen);
+              setNotifMenuOpen(false);
+            }}
             className="flex flex-col items-center justify-center p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition relative"
           >
             <div className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-bold">
@@ -380,6 +395,109 @@ export default function NavigationRail({
             <span className="text-[10px] mt-0.5 font-medium">Akun</span>
           </button>
         </nav>
+      )}
+
+      {notifMenuOpen && (
+        <div 
+          onClick={() => setNotifMenuOpen(false)}
+          className="fixed inset-0 bg-black/40 z-50 md:hidden flex items-end justify-center p-4 animate-fade-in"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm bg-white dark:bg-[#1e293b] rounded-3xl p-5 shadow-2xl border border-slate-200 dark:border-slate-700 animate-slide-up"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-700 mb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                  <Bell className="w-4.5 h-4.5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">Notifikasi Pesan</h4>
+                  <p className="text-[11px] text-slate-400">Atur suara & pop-up pesan masuk</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setNotifMenuOpen(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-3">
+                  {soundEnabled ? (
+                    <Volume2 className="w-5 h-5 text-emerald-500" />
+                  ) : (
+                    <VolumeX className="w-5 h-5 text-slate-400" />
+                  )}
+                  <div>
+                    <p className="font-bold text-slate-800 dark:text-slate-100 text-xs">Suara Notifikasi</p>
+                    <p className="text-[10px] text-slate-400">Bunyi lonceng saat pesan masuk</p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleToggleSound}
+                  className={`w-11 h-6 rounded-full transition-colors relative flex-shrink-0 ${
+                    soundEnabled ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
+                      soundEnabled ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <button
+                onClick={handleTestSound}
+                className="w-full py-2.5 px-4 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 transition active:scale-95"
+              >
+                <Volume2 className="w-4 h-4" />
+                <span>Uji Coba Suara (Chime)</span>
+              </button>
+
+              <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+                <div>
+                  <p className="font-bold text-slate-800 dark:text-slate-100 text-xs">Pop-up Desktop / Sistem</p>
+                  <p className="text-[10px] text-slate-400">
+                    {permState === 'granted' ? 'Notifikasi sistem aktif' : 'Muncul saat membuka tab lain'}
+                  </p>
+                </div>
+                <button
+                  onClick={handleToggleDesktop}
+                  className={`w-11 h-6 rounded-full transition-colors relative flex-shrink-0 ${
+                    desktopEnabled && permState === 'granted' ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
+                      desktopEnabled && permState === 'granted' ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {permState !== 'granted' && (
+                <button
+                  onClick={async () => {
+                    const p = await requestNotificationPermission();
+                    setPermState(p);
+                    if (p === 'granted') {
+                      setDesktopEnabled(true);
+                      localStorage.setItem('wa_notif_desktop_enabled', 'true');
+                    }
+                  }}
+                  className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold text-xs transition active:scale-95 shadow-md shadow-emerald-600/20"
+                >
+                  Aktifkan Izin Notifikasi Browser
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {profileMenuOpen && (
@@ -410,13 +528,47 @@ export default function NavigationRail({
             <div className="space-y-2">
               <button
                 onClick={() => {
+                  toggleTheme();
+                  setProfileMenuOpen(false);
+                }}
+                className="w-full px-4 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 font-semibold text-xs flex items-center justify-between transition"
+              >
+                <div className="flex items-center gap-2.5">
+                  {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-500" />}
+                  <span>{isDark ? 'Mode Terang' : 'Mode Gelap'}</span>
+                </div>
+                <span className="text-[10px] px-2 py-0.5 rounded bg-white dark:bg-slate-700 text-slate-500 dark:text-slate-300 font-bold uppercase">
+                  {theme}
+                </span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setProfileMenuOpen(false);
+                  setNotifMenuOpen(true);
+                }}
+                className="w-full px-4 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 font-semibold text-xs flex items-center justify-between transition"
+              >
+                <div className="flex items-center gap-2.5">
+                  <Bell className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                  <span>Pengaturan Notifikasi</span>
+                </div>
+                <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${
+                  soundEnabled ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-slate-200 dark:bg-slate-700 text-slate-400'
+                }`}>
+                  {soundEnabled ? 'Aktif' : 'Mati'}
+                </span>
+              </button>
+
+              <button
+                onClick={() => {
                   setProfileMenuOpen(false);
                   setActiveTab('whatsapp');
                 }}
                 className="w-full px-4 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 font-semibold text-xs flex items-center gap-2.5 transition"
               >
                 <Smartphone className="w-4 h-4 text-indigo-600" />
-                Kelola Sesi WhatsApp
+                <span>Kelola Sesi WhatsApp</span>
               </button>
 
               <button
@@ -427,7 +579,7 @@ export default function NavigationRail({
                 className="w-full px-4 py-3 rounded-2xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 font-bold text-xs flex items-center gap-2.5 transition"
               >
                 <LogOut className="w-4 h-4" />
-                Keluar (Logout)
+                <span>Keluar (Logout)</span>
               </button>
             </div>
           </div>

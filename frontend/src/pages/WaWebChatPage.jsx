@@ -74,6 +74,13 @@ export default function WaWebChatPage({ waStatus, onActiveChatChange, selectedCh
   }, [selectedChatJid, chats]);
   const [loadingChats, setLoadingChats] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [dismissReconnectBanner, setDismissReconnectBanner] = useState(false);
+
+  useEffect(() => {
+    if (waStatus?.status === 'CONNECTED') {
+      setDismissReconnectBanner(false);
+    }
+  }, [waStatus?.status]);
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -1102,15 +1109,24 @@ export default function WaWebChatPage({ waStatus, onActiveChatChange, selectedCh
           </div>
         </div>
 
-        {waStatus?.status === 'RECONNECTING' && (
-          <div className="px-4 py-2 bg-amber-500/10 dark:bg-amber-500/15 border-b border-amber-500/25 flex items-center justify-between text-xs text-amber-700 dark:text-amber-300 font-medium animate-pulse">
-            <div className="flex items-center gap-2">
-              <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-600 dark:text-amber-400" />
-              <span>Menghubungkan kembali ke WhatsApp...</span>
+        {waStatus?.status === 'RECONNECTING' && !dismissReconnectBanner && (
+          <div className="px-3.5 py-1.5 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200/80 dark:border-amber-900/40 flex items-center justify-between text-xs text-amber-800 dark:text-amber-300 font-medium transition-all">
+            <div className="flex items-center gap-2 min-w-0">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-600 dark:text-amber-400 flex-shrink-0" />
+              <span className="truncate">Menghubungkan kembali...</span>
             </div>
-            <span className="text-[10px] bg-amber-500/20 text-amber-800 dark:text-amber-200 px-1.5 py-0.5 rounded font-semibold">
-              Auto-reconnect
-            </span>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <span className="text-[9px] bg-amber-200/60 dark:bg-amber-800/40 text-amber-900 dark:text-amber-200 px-1.5 py-0.5 rounded font-bold">
+                Auto
+              </span>
+              <button
+                onClick={() => setDismissReconnectBanner(true)}
+                className="text-amber-600 hover:text-amber-800 dark:text-amber-400 dark:hover:text-amber-200 p-0.5 rounded transition"
+                title="Tutup banner"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         )}
 
